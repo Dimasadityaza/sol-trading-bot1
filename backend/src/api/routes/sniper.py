@@ -7,7 +7,7 @@ import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.database import get_db, close_db, Wallet, SniperConfig
+from core.database import get_db, close_db, Wallet, SniperConfig, WalletGroup
 from core.wallet import import_wallet
 from utils.encryption import decrypt_private_key
 from trading.sniper import SniperManager
@@ -28,6 +28,19 @@ class SniperConfigRequest(BaseModel):
 
 class SniperStartRequest(BaseModel):
     wallet_id: int
+    password: str
+    platforms: list = ["raydium", "pumpfun"]
+
+class GroupSniperConfigRequest(BaseModel):
+    group_id: int
+    buy_amount: float = 0.1
+    slippage: float = 5.0
+    min_liquidity: float = 5.0
+    min_safety_score: int = 70
+    require_mint_renounced: bool = True
+    require_freeze_renounced: bool = True
+    max_buy_tax: float = 10.0
+    max_sell_tax: float = 10.0
     password: str
     platforms: list = ["raydium", "pumpfun"]
 
@@ -196,3 +209,88 @@ def get_sniper_status():
         return manager.get_status()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/group/setup")
+async def setup_group_sniper(
+    request: GroupSniperConfigRequest,
+    db: Session = Depends(get_db)
+):
+    """Setup sniper configuration for all wallets in a group"""
+    try:
+        # Get group
+        group = db.query(WalletGroup).filter(WalletGroup.id == request.group_id).first()
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+
+        # Get all wallets in group
+        wallets = db.query(Wallet).filter(Wallet.group_id == request.group_id).all()
+        if not wallets:
+            raise HTTPException(status_code=404, detail="No wallets found in group")
+
+        # Verify password with first wallet
+        try:
+            decrypt_private_key(wallets[0].encrypted_private_key, request.password)
+        except:
+            raise HTTPException(status_code=401, detail="Invalid password")
+
+        # Create/update config for each wallet
+        configs_created = 0
+        configs_updated = 0
+
+        for wallet in wallets:
+            config = db.query(SniperConfig).filter(
+                SniperConfig.wallet_id == wallet.id
+            ).first()
+
+            if config:
+                # Update existing
+                config.buy_amount = request.buy_amount
+                config.slippage = request.slippage
+                config.min_liquidity = request.min_liquidity
+                config.require_mint_renounced = request.require_mint_renounced
+                config.require_freeze_renounced = request.require_freeze_renounced
+                config.max_buy_tax = request.max_buy_tax
+                config.max_sell_tax = request.max_sell_tax
+                configs_updated += 1
+            else:
+                # Create new
+                config = SniperConfig(
+                    wallet_id=wallet.id,
+                    buy_amount=request.buy_amount,
+                    slippage=request.slippage,
+                    min_liquidity=request.min_liquidity,
+                    require_mint_renounced=request.require_mint_renounced,
+                    require_freeze_renounced=request.require_freeze_renounced,
+                    max_buy_tax=request.max_buy_tax,
+                    max_sell_tax=request.max_sell_tax
+                )
+                db.add(config)
+                configs_created += 1
+
+        db.commit()
+
+        return {
+            "success": True,
+            "message": f"Group sniper configured for {len(wallets)} wallets",
+            "group_id": request.group_id,
+            "group_name": group.name,
+            "total_wallets": len(wallets),
+            "configs_created": configs_created,
+            "configs_updated": configs_updated,
+            "platforms": request.platforms,
+            "config": {
+                "buy_amount": request.buy_amount,
+                "slippage": request.slippage,
+                "min_liquidity": request.min_liquidity,
+                "min_safety_score": request.min_safety_score,
+                "require_mint_renounced": request.require_mint_renounced,
+                "require_freeze_renounced": request.require_freeze_renounced
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        close_db(db)

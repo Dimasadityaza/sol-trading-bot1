@@ -16,7 +16,6 @@ const navigation = [
   { name: 'Groups', href: '/groups', icon: Users },
   { name: 'Trading', href: '/trading', icon: TrendingUp },
   { name: 'Sniper Config', href: '/sniper', icon: Target },
-  { name: 'Copy Trading', href: '/copy-trading', icon: Users },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
