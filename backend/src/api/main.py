@@ -13,6 +13,7 @@ from core.database import init_db, get_db, close_db, Wallet
 from core.wallet import generate_wallet, import_wallet, get_balance, keypair_to_base58
 from utils.encryption import encrypt_private_key, decrypt_private_key
 from api.routes import trading, sniper, analytics, groups
+from config import NETWORK, RPC_ENDPOINT
 
 app = FastAPI(title="Solana Sniper Bot API", version="1.0.0")
 
@@ -62,7 +63,12 @@ def root():
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "message": "API is running"}
+    return {
+        "status": "healthy",
+        "message": "API is running",
+        "network": NETWORK,
+        "rpc_endpoint": RPC_ENDPOINT
+    }
 
 @app.post("/wallet/create", response_model=WalletResponse)
 def create_wallet(request: CreateWalletRequest, db: Session = Depends(get_db)):

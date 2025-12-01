@@ -6,6 +6,7 @@ import { useWalletStore } from '@/store/walletStore'
 import { sniperApi, groupsApi } from '@/services/api'
 import { Target, Play, Square, Activity, TrendingUp, AlertCircle, CheckCircle, Users, Wallet } from 'lucide-react'
 import type { SniperConfig, SniperStatus } from '@/types'
+import { storage } from '@/utils/storage'
 
 export function Sniper() {
   const { selectedWallet } = useWalletStore()
@@ -15,6 +16,7 @@ export function Sniper() {
   const [groups, setGroups] = useState<any[]>([])
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null)
   const [tokenAddress, setTokenAddress] = useState('')
+  const [network, setNetwork] = useState<string>('devnet')
 
   // Configuration state
   const [config, setConfig] = useState<SniperConfig>({
@@ -40,15 +42,24 @@ export function Sniper() {
 
   // UI state
   const [password, setPassword] = useState('')
+  const [rememberPassword, setRememberPassword] = useState(false)
   const [platforms, setPlatforms] = useState<string[]>(['raydium', 'pumpfun'])
   const [isSaving, setIsSaving] = useState(false)
   const [isStarting, setIsStarting] = useState(false)
   const [isStopping, setIsStopping] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
 
-  // Load groups on mount
+  // Load groups and saved password on mount
   useEffect(() => {
     loadGroups()
+    fetchNetworkInfo()
+
+    // Load saved password if exists
+    const savedPassword = storage.getPassword()
+    if (savedPassword) {
+      setPassword(savedPassword)
+      setRememberPassword(true)
+    }
   }, [])
 
   // Load config when wallet selected
@@ -64,6 +75,16 @@ export function Sniper() {
       setGroups(response.groups || [])
     } catch (error) {
       console.error('Failed to load groups:', error)
+    }
+  }
+
+  const fetchNetworkInfo = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/health')
+      const data = await response.json()
+      setNetwork(data.network || 'devnet')
+    } catch (error) {
+      console.error('Failed to fetch network info:', error)
     }
   }
 
@@ -217,6 +238,13 @@ export function Sniper() {
         }
       }
 
+      // Handle remember password
+      if (rememberPassword) {
+        storage.savePassword(password)
+      } else {
+        storage.clearPassword()
+      }
+
       setPassword('')
       await fetchStatus()
     } catch (error: any) {
@@ -224,6 +252,13 @@ export function Sniper() {
     } finally {
       setIsStarting(false)
     }
+  }
+
+  const handleForgetPassword = () => {
+    storage.clearPassword()
+    setPassword('')
+    setRememberPassword(false)
+    showMessage('success', 'Password cleared from browser storage')
   }
 
   const stopSniper = async () => {
@@ -254,11 +289,22 @@ export function Sniper() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Sniper Configuration</h1>
-        <p className="text-muted-foreground">
-          Auto-detect and snipe new liquidity pools with safety checks
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Sniper Configuration</h1>
+          <p className="text-muted-foreground">
+            Auto-detect and snipe new liquidity pools with safety checks
+          </p>
+        </div>
+        <div className={`px-4 py-2 rounded-full text-sm font-semibold ${
+          network === 'mainnet'
+            ? 'bg-green-500/20 text-green-400 border border-green-500/50'
+            : network === 'testnet'
+            ? 'bg-blue-500/20 text-blue-400 border border-blue-500/50'
+            : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/50'
+        }`}>
+          {network === 'mainnet' ? '🔴 MAINNET' : network === 'testnet' ? '🔵 TESTNET' : '🟡 DEVNET'}
+        </div>
       </div>
 
       {/* Mode Selection */}
@@ -568,6 +614,27 @@ export function Sniper() {
                     onChange={(e) => setPassword(e.target.value)}
                     className="mt-1"
                   />
+                  <div className="flex items-center justify-between mt-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={rememberPassword}
+                        onChange={(e) => setRememberPassword(e.target.checked)}
+                        className="h-4 w-4"
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        Remember password (browser only)
+                      </span>
+                    </label>
+                    {storage.hasPassword() && (
+                      <button
+                        onClick={handleForgetPassword}
+                        className="text-xs text-red-400 hover:text-red-300 underline"
+                      >
+                        Forget Password
+                      </button>
+                    )}
+                  </div>
                   <p className="text-xs text-muted-foreground mt-1">
                     Required to decrypt private key for trading
                   </p>
@@ -575,7 +642,7 @@ export function Sniper() {
 
                 <Button
                   onClick={startSniper}
-                  disabled={isStarting || !selectedWallet || platforms.length === 0}
+                  disabled={isStarting || (mode === 'single' && !selectedWallet) || (mode === 'group' && !selectedGroupId) || platforms.length === 0}
                   className="w-full bg-green-500 hover:bg-green-600"
                 >
                   <Play className="h-4 w-4 mr-2" />

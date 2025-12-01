@@ -3,9 +3,24 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# RPC Configuration
-RPC_ENDPOINT = os.getenv("RPC_ENDPOINT", "https://api.devnet.solana.com")
-WS_ENDPOINT = os.getenv("WS_ENDPOINT", "wss://api.devnet.solana.com")
+# Network Configuration
+NETWORK = os.getenv("NETWORK", "devnet")  # devnet, testnet, or mainnet
+
+# RPC Configuration based on network
+RPC_ENDPOINTS = {
+    "devnet": "https://api.devnet.solana.com",
+    "testnet": "https://api.testnet.solana.com",
+    "mainnet": os.getenv("MAINNET_RPC", "https://api.mainnet-beta.solana.com"),
+}
+
+WS_ENDPOINTS = {
+    "devnet": "wss://api.devnet.solana.com",
+    "testnet": "wss://api.testnet.solana.com",
+    "mainnet": "wss://api.mainnet-beta.solana.com",
+}
+
+RPC_ENDPOINT = os.getenv("RPC_ENDPOINT", RPC_ENDPOINTS.get(NETWORK, RPC_ENDPOINTS["devnet"]))
+WS_ENDPOINT = os.getenv("WS_ENDPOINT", WS_ENDPOINTS.get(NETWORK, WS_ENDPOINTS["devnet"]))
 
 # Database
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./sniper.db")
