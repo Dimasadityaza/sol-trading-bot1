@@ -49,3 +49,43 @@ export interface ApiResponse<T> {
   error?: string
   message?: string
 }
+
+export interface SniperConfig {
+  id?: number
+  wallet_id: number
+  buy_amount: number
+  slippage: number
+  min_liquidity: number
+  min_safety_score?: number
+  require_mint_renounced: boolean
+  require_freeze_renounced: boolean
+  max_buy_tax: number
+  max_sell_tax: number
+  is_active?: boolean
+}
+
+export interface SniperConfigRequest {
+  wallet_id: number
+  buy_amount: number
+  slippage: number
+  min_liquidity: number
+  min_safety_score?: number
+  require_mint_renounced: boolean
+  require_freeze_renounced: boolean
+  max_buy_tax: number
+  max_sell_tax: number
+}
+
+export interface SniperStartRequest {
+  wallet_id: number
+  password: string
+  platforms?: string[]
+}
+
+export interface SniperStatus {
+  is_running: boolean
+  pools_detected?: number
+  tokens_bought?: number
+  tokens_skipped?: number
+  success_rate?: number
+}
