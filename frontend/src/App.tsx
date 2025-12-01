@@ -6,6 +6,7 @@ import { Wallets } from './pages/Wallets'
 import { Trading } from './pages/Trading'
 import { Settings } from './pages/Settings'
 import { Sniper } from './pages/Sniper'
+import { Analytics } from './pages/Analytics'
 import Groups from './pages/Groups'
 
 const queryClient = new QueryClient({
@@ -28,8 +29,7 @@ function App() {
             <Route path="groups" element={<Groups />} />
             <Route path="trading" element={<Trading />} />
             <Route path="sniper" element={<Sniper />} />
-            <Route path="copy-trading" element={<div className="text-center py-12">Copy Trading - Coming Soon</div>} />
-            <Route path="analytics" element={<div className="text-center py-12">Analytics - Coming Soon</div>} />
+            <Route path="analytics" element={<Analytics />} />
             <Route path="settings" element={<Settings />} />
           </Route>
         </Routes>

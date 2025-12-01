@@ -69,11 +69,28 @@ export function Sniper() {
       const data = await sniperApi.getConfig(selectedWallet.id)
       setConfig(data)
     } catch (error: any) {
-      // Config not found, use defaults
-      setConfig({
-        ...config,
+      // Config not found, create default config
+      const defaultConfig = {
         wallet_id: selectedWallet.id,
-      })
+        buy_amount: 0.1,
+        slippage: 5.0,
+        min_liquidity: 5.0,
+        min_safety_score: 70,
+        require_mint_renounced: true,
+        require_freeze_renounced: true,
+        max_buy_tax: 10.0,
+        max_sell_tax: 10.0,
+      }
+
+      setConfig(defaultConfig)
+
+      // Auto-save default config to backend
+      try {
+        await sniperApi.saveConfig(defaultConfig)
+        showMessage('success', 'Default sniper configuration created')
+      } catch (saveError) {
+        console.error('Failed to auto-save config:', saveError)
+      }
     }
   }
 
