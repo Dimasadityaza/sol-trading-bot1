@@ -1,5 +1,13 @@
 import axios from 'axios'
-import type { Wallet, CreateWalletRequest, ImportWalletRequest } from '@/types'
+import type {
+  Wallet,
+  CreateWalletRequest,
+  ImportWalletRequest,
+  SniperConfig,
+  SniperConfigRequest,
+  SniperStartRequest,
+  SniperStatus
+} from '@/types'
 
 const api = axios.create({
   baseURL: 'http://localhost:8000',
@@ -37,6 +45,34 @@ export const walletApi = {
 
   delete: async (id: number) => {
     const response = await api.delete(`/wallet/${id}`)
+    return response.data
+  },
+}
+
+// Sniper API
+export const sniperApi = {
+  getConfig: async (walletId: number): Promise<SniperConfig> => {
+    const response = await api.get(`/sniper/config/${walletId}`)
+    return response.data
+  },
+
+  saveConfig: async (data: SniperConfigRequest): Promise<SniperConfig> => {
+    const response = await api.post('/sniper/config', data)
+    return response.data
+  },
+
+  start: async (data: SniperStartRequest) => {
+    const response = await api.post('/sniper/start', data)
+    return response.data
+  },
+
+  stop: async () => {
+    const response = await api.post('/sniper/stop')
+    return response.data
+  },
+
+  getStatus: async (): Promise<SniperStatus> => {
+    const response = await api.get('/sniper/status')
     return response.data
   },
 }
