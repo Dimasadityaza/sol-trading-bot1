@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+solana>=0.30.0
+solders
+httpx
+websockets
+sqlalchemy
+aiosqlite
+python-dotenv
+cryptography
+pydantic
+loguru
+base58
+mnemonic
