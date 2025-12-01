@@ -75,6 +75,49 @@ export const sniperApi = {
     const response = await api.get('/sniper/status')
     return response.data
   },
+
+  setupGroupSniper: async (data: any) => {
+    const response = await api.post('/sniper/group/setup', data)
+    return response.data
+  },
+
+  startManualSnipe: async (data: any) => {
+    const response = await api.post('/sniper/manual', data)
+    return response.data
+  },
+}
+
+// Groups API
+export const groupsApi = {
+  listGroups: async () => {
+    const response = await api.get('/group/list')
+    return response.data
+  },
+
+  getGroup: async (groupId: number) => {
+    const response = await api.get(`/group/${groupId}`)
+    return response.data
+  },
+
+  createGroup: async (data: any) => {
+    const response = await api.post('/group/create', data)
+    return response.data
+  },
+
+  deleteGroup: async (groupId: number) => {
+    const response = await api.delete(`/group/${groupId}`)
+    return response.data
+  },
+
+  getGroupWallets: async (groupId: number) => {
+    const response = await api.get(`/group/${groupId}/wallets`)
+    return response.data
+  },
+
+  getGroupBalances: async (groupId: number) => {
+    const response = await api.get(`/group/${groupId}/balances`)
+    return response.data
+  },
 }
 
 // Health check

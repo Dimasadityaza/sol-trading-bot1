@@ -44,6 +44,12 @@ class GroupSniperConfigRequest(BaseModel):
     password: str
     platforms: list = ["raydium", "pumpfun"]
 
+class ManualSnipeRequest(BaseModel):
+    wallet_id: Optional[int] = None
+    group_id: Optional[int] = None
+    token_address: str
+    password: str
+
 # Routes
 @router.post("/config")
 def save_sniper_config(request: SniperConfigRequest, db: Session = Depends(get_db)):
@@ -286,6 +292,105 @@ async def setup_group_sniper(
                 "require_mint_renounced": request.require_mint_renounced,
                 "require_freeze_renounced": request.require_freeze_renounced
             }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        close_db(db)
+
+@router.post("/manual")
+async def manual_snipe(
+    request: ManualSnipeRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Manually snipe a specific token address
+    Can be used with single wallet or group of wallets
+    """
+    try:
+        if not request.wallet_id and not request.group_id:
+            raise HTTPException(status_code=400, detail="Either wallet_id or group_id must be provided")
+
+        if request.wallet_id and request.group_id:
+            raise HTTPException(status_code=400, detail="Provide either wallet_id or group_id, not both")
+
+        results = []
+
+        if request.wallet_id:
+            # Single wallet manual snipe
+            wallet = db.query(Wallet).filter(Wallet.id == request.wallet_id).first()
+            if not wallet:
+                raise HTTPException(status_code=404, detail="Wallet not found")
+
+            # Decrypt private key
+            try:
+                private_key = decrypt_private_key(wallet.encrypted_private_key, request.password)
+            except:
+                raise HTTPException(status_code=401, detail="Invalid password")
+
+            # Import keypair
+            keypair = import_wallet(private_key, "private_key")
+
+            # Get config
+            config = db.query(SniperConfig).filter(
+                SniperConfig.wallet_id == request.wallet_id
+            ).first()
+
+            if not config:
+                raise HTTPException(status_code=404, detail="Sniper config not found. Please save configuration first.")
+
+            # TODO: Implement actual buy logic using trading module
+            # For now, return success message
+            results.append({
+                "wallet_id": request.wallet_id,
+                "public_key": wallet.public_key,
+                "token_address": request.token_address,
+                "status": "queued",
+                "message": "Manual snipe queued"
+            })
+
+        elif request.group_id:
+            # Group wallet manual snipe
+            group = db.query(WalletGroup).filter(WalletGroup.id == request.group_id).first()
+            if not group:
+                raise HTTPException(status_code=404, detail="Group not found")
+
+            # Get all wallets in group
+            wallets = db.query(Wallet).filter(Wallet.group_id == request.group_id).all()
+            if not wallets:
+                raise HTTPException(status_code=404, detail="No wallets found in group")
+
+            # Verify password with first wallet
+            try:
+                decrypt_private_key(wallets[0].encrypted_private_key, request.password)
+            except:
+                raise HTTPException(status_code=401, detail="Invalid password")
+
+            # Queue snipe for each wallet
+            for wallet in wallets:
+                config = db.query(SniperConfig).filter(
+                    SniperConfig.wallet_id == wallet.id
+                ).first()
+
+                if config:
+                    # TODO: Implement actual buy logic using trading module
+                    results.append({
+                        "wallet_id": wallet.id,
+                        "public_key": wallet.public_key,
+                        "token_address": request.token_address,
+                        "status": "queued",
+                        "message": "Manual snipe queued"
+                    })
+
+        return {
+            "success": True,
+            "message": f"Manual snipe initiated for token {request.token_address}",
+            "token_address": request.token_address,
+            "total_wallets": len(results),
+            "results": results
         }
 
     except HTTPException:

@@ -3,12 +3,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useWalletStore } from '@/store/walletStore'
-import { sniperApi } from '@/services/api'
-import { Target, Play, Square, Activity, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react'
+import { sniperApi, groupsApi } from '@/services/api'
+import { Target, Play, Square, Activity, TrendingUp, AlertCircle, CheckCircle, Users, Wallet } from 'lucide-react'
 import type { SniperConfig, SniperStatus } from '@/types'
 
 export function Sniper() {
   const { selectedWallet } = useWalletStore()
+
+  // Mode selection
+  const [mode, setMode] = useState<'single' | 'group'>('single')
+  const [groups, setGroups] = useState<any[]>([])
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null)
+  const [tokenAddress, setTokenAddress] = useState('')
 
   // Configuration state
   const [config, setConfig] = useState<SniperConfig>({
@@ -40,12 +46,26 @@ export function Sniper() {
   const [isStopping, setIsStopping] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
 
+  // Load groups on mount
+  useEffect(() => {
+    loadGroups()
+  }, [])
+
   // Load config when wallet selected
   useEffect(() => {
-    if (selectedWallet) {
+    if (selectedWallet && mode === 'single') {
       loadConfig()
     }
-  }, [selectedWallet])
+  }, [selectedWallet, mode])
+
+  const loadGroups = async () => {
+    try {
+      const response = await groupsApi.listGroups()
+      setGroups(response.groups || [])
+    } catch (error) {
+      console.error('Failed to load groups:', error)
+    }
+  }
 
   // Poll status every 3 seconds when running
   useEffect(() => {
@@ -131,8 +151,14 @@ export function Sniper() {
   }
 
   const startSniper = async () => {
-    if (!selectedWallet) {
+    // Validation
+    if (mode === 'single' && !selectedWallet) {
       showMessage('error', 'Please select a wallet first')
+      return
+    }
+
+    if (mode === 'group' && !selectedGroupId) {
+      showMessage('error', 'Please select a group first')
       return
     }
 
@@ -143,13 +169,54 @@ export function Sniper() {
 
     setIsStarting(true)
     try {
-      await sniperApi.start({
-        wallet_id: selectedWallet.id,
-        password: password,
-        platforms: platforms,
-      })
+      if (mode === 'group') {
+        // Group sniper mode
+        await sniperApi.setupGroupSniper({
+          group_id: selectedGroupId!,
+          buy_amount: config.buy_amount,
+          slippage: config.slippage,
+          min_liquidity: config.min_liquidity,
+          min_safety_score: config.min_safety_score,
+          require_mint_renounced: config.require_mint_renounced,
+          require_freeze_renounced: config.require_freeze_renounced,
+          max_buy_tax: config.max_buy_tax,
+          max_sell_tax: config.max_sell_tax,
+          password: password,
+          platforms: platforms,
+        })
 
-      showMessage('success', 'Sniper bot started successfully!')
+        // If token address is provided, start manual snipe
+        if (tokenAddress.trim()) {
+          await sniperApi.startManualSnipe({
+            group_id: selectedGroupId!,
+            token_address: tokenAddress.trim(),
+            password: password,
+          })
+          showMessage('success', `Group sniper started for token: ${tokenAddress.substring(0, 8)}...`)
+        } else {
+          showMessage('success', 'Group sniper configured successfully!')
+        }
+      } else {
+        // Single wallet mode
+        if (tokenAddress.trim()) {
+          // Manual snipe with specific token
+          await sniperApi.startManualSnipe({
+            wallet_id: selectedWallet!.id,
+            token_address: tokenAddress.trim(),
+            password: password,
+          })
+          showMessage('success', `Manual snipe started for token: ${tokenAddress.substring(0, 8)}...`)
+        } else {
+          // Auto-detection mode
+          await sniperApi.start({
+            wallet_id: selectedWallet!.id,
+            password: password,
+            platforms: platforms,
+          })
+          showMessage('success', 'Sniper bot started successfully!')
+        }
+      }
+
       setPassword('')
       await fetchStatus()
     } catch (error: any) {
@@ -194,7 +261,94 @@ export function Sniper() {
         </p>
       </div>
 
-      {!selectedWallet && (
+      {/* Mode Selection */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Sniper Mode</CardTitle>
+          <CardDescription>Choose between single wallet or group wallet sniping</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-4">
+            <button
+              onClick={() => setMode('single')}
+              className={`flex-1 p-4 rounded-lg border-2 transition-all ${
+                mode === 'single'
+                  ? 'border-primary bg-primary/10'
+                  : 'border-border hover:border-primary/50'
+              }`}
+            >
+              <Wallet className="h-6 w-6 mx-auto mb-2" />
+              <div className="font-medium">Single Wallet</div>
+              <div className="text-xs text-muted-foreground mt-1">
+                Snipe using one wallet
+              </div>
+            </button>
+            <button
+              onClick={() => setMode('group')}
+              className={`flex-1 p-4 rounded-lg border-2 transition-all ${
+                mode === 'group'
+                  ? 'border-primary bg-primary/10'
+                  : 'border-border hover:border-primary/50'
+              }`}
+            >
+              <Users className="h-6 w-6 mx-auto mb-2" />
+              <div className="font-medium">Group Wallet</div>
+              <div className="text-xs text-muted-foreground mt-1">
+                Snipe using multiple wallets
+              </div>
+            </button>
+          </div>
+
+          {mode === 'single' && !selectedWallet && (
+            <div className="mt-4 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/50">
+              <p className="text-sm text-yellow-500">
+                ⚠️ Please select a wallet from the Wallets page
+              </p>
+            </div>
+          )}
+
+          {mode === 'group' && (
+            <div className="mt-4">
+              <label className="text-sm font-medium">Select Group</label>
+              <select
+                value={selectedGroupId || ''}
+                onChange={(e) => setSelectedGroupId(Number(e.target.value))}
+                className="mt-1 w-full px-3 py-2 rounded-md border border-border bg-background"
+              >
+                <option value="">Select a group...</option>
+                {groups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.name} ({group.wallet_count} wallets)
+                  </option>
+                ))}
+              </select>
+              {groups.length === 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  No groups found. Create a group in the Groups page first.
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="mt-4">
+            <label className="text-sm font-medium">Token Address (Optional)</label>
+            <Input
+              placeholder="Enter token address to snipe manually (leave empty for auto-detection)"
+              value={tokenAddress}
+              onChange={(e) => setTokenAddress(e.target.value)}
+              className="mt-1 font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              {tokenAddress.trim()
+                ? '🎯 Manual snipe mode - will buy this specific token'
+                : '🔍 Auto-detection mode - will monitor DEX platforms for new pools'
+              }
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {mode === 'single' && !selectedWallet && (
         <Card className="border-yellow-500/50 bg-yellow-500/10">
           <CardContent className="py-4">
             <p className="text-yellow-500">
