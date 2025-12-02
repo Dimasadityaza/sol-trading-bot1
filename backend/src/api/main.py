@@ -227,10 +227,10 @@ def delete_wallet(wallet_id: int, db: Session = Depends(get_db)):
         wallet = db.query(Wallet).filter(Wallet.id == wallet_id).first()
         if not wallet:
             raise HTTPException(status_code=404, detail="Wallet not found")
-        
+
         db.delete(wallet)
         db.commit()
-        
+
         return {"message": "Wallet deleted successfully", "wallet_id": wallet_id}
     except HTTPException:
         raise
@@ -238,6 +238,50 @@ def delete_wallet(wallet_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         close_db(db)
+
+# Network settings
+class NetworkConfig(BaseModel):
+    network: str  # 'devnet' or 'mainnet'
+
+# Global network state
+current_network = {
+    "network": "devnet",
+    "rpc_endpoint": "https://api.devnet.solana.com",
+    "ws_endpoint": "wss://api.devnet.solana.com"
+}
+
+@app.get("/settings/network")
+def get_network():
+    """Get current network configuration"""
+    return current_network
+
+@app.post("/settings/network")
+def set_network(config: NetworkConfig):
+    """Set network (devnet or mainnet)"""
+    global current_network
+
+    if config.network not in ["devnet", "mainnet"]:
+        raise HTTPException(status_code=400, detail="Network must be 'devnet' or 'mainnet'")
+
+    if config.network == "mainnet":
+        current_network = {
+            "network": "mainnet",
+            "rpc_endpoint": "https://api.mainnet-beta.solana.com",
+            "ws_endpoint": "wss://api.mainnet-beta.solana.com"
+        }
+    else:
+        current_network = {
+            "network": "devnet",
+            "rpc_endpoint": "https://api.devnet.solana.com",
+            "ws_endpoint": "wss://api.devnet.solana.com"
+        }
+
+    # Update config module
+    import config as cfg
+    cfg.RPC_ENDPOINT = current_network["rpc_endpoint"]
+    cfg.WS_ENDPOINT = current_network["ws_endpoint"]
+
+    return current_network
 
 if __name__ == "__main__":
     import uvicorn

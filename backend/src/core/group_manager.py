@@ -11,6 +11,7 @@ from core.wallet import generate_wallet, keypair_to_base58
 from core.database import get_db, close_db, Wallet, WalletGroup
 from utils.encryption import encrypt_private_key
 from solders.keypair import Keypair
+from solders.pubkey import Pubkey
 from solana.rpc.api import Client
 from config import RPC_ENDPOINT
 
@@ -192,10 +193,11 @@ class WalletGroupManager:
             
             for wallet in wallets:
                 try:
-                    response = self.client.get_balance(wallet.public_key)
-                    balance = response.value / 1e9  # Convert lamports to SOL
+                    pubkey = Pubkey.from_string(wallet.public_key)
+                    response = self.client.get_balance(pubkey)
+                    balance = response.value / 1e9 if response.value is not None else 0.0
                     total_balance += balance
-                    
+
                     balances.append({
                         "id": wallet.id,
                         "index": wallet.wallet_index,
@@ -203,7 +205,8 @@ class WalletGroupManager:
                         "address": wallet.public_key,
                         "balance": balance
                     })
-                except:
+                except Exception as e:
+                    print(f"Error getting balance for {wallet.label}: {str(e)}")
                     balances.append({
                         "id": wallet.id,
                         "index": wallet.wallet_index,
