@@ -243,12 +243,27 @@ def delete_wallet(wallet_id: int, db: Session = Depends(get_db)):
 class NetworkConfig(BaseModel):
     network: str  # 'devnet' or 'mainnet'
 
-# Global network state
-current_network = {
-    "network": "devnet",
-    "rpc_endpoint": "https://api.devnet.solana.com",
-    "ws_endpoint": "wss://api.devnet.solana.com"
-}
+# Initialize network from environment config
+import config as cfg
+
+# Detect network from RPC_ENDPOINT
+def detect_network_from_config():
+    """Detect network type from RPC endpoint in config"""
+    if "mainnet" in cfg.RPC_ENDPOINT:
+        return {
+            "network": "mainnet",
+            "rpc_endpoint": cfg.RPC_ENDPOINT,
+            "ws_endpoint": cfg.WS_ENDPOINT
+        }
+    else:
+        return {
+            "network": "devnet",
+            "rpc_endpoint": cfg.RPC_ENDPOINT,
+            "ws_endpoint": cfg.WS_ENDPOINT
+        }
+
+# Global network state - initialized from .env
+current_network = detect_network_from_config()
 
 @app.get("/settings/network")
 def get_network():
@@ -277,7 +292,6 @@ def set_network(config: NetworkConfig):
         }
 
     # Update config module
-    import config as cfg
     cfg.RPC_ENDPOINT = current_network["rpc_endpoint"]
     cfg.WS_ENDPOINT = current_network["ws_endpoint"]
 

@@ -44,6 +44,20 @@ class GroupSniperConfigRequest(BaseModel):
     password: str
     platforms: list = ["raydium", "pumpfun"]
 
+class ManualSnipeRequest(BaseModel):
+    wallet_id: int
+    token_address: str
+    sol_amount: float
+    slippage: float = 5.0
+    password: str
+
+class GroupSnipeRequest(BaseModel):
+    group_id: int
+    token_address: str
+    sol_amount_per_wallet: float
+    slippage: float = 5.0
+    password: str
+
 # Routes
 @router.post("/config")
 def save_sniper_config(request: SniperConfigRequest, db: Session = Depends(get_db)):
@@ -291,6 +305,146 @@ async def setup_group_sniper(
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        close_db(db)
+@router.post("/manual-snipe")
+async def manual_snipe(request: ManualSnipeRequest, db: Session = Depends(get_db)):
+    """
+    Manually snipe a specific token address with a single wallet
+
+    This bypasses the auto-detection and directly buys a specific token
+    """
+    try:
+        # Get wallet
+        wallet = db.query(Wallet).filter(Wallet.id == request.wallet_id).first()
+        if not wallet:
+            raise HTTPException(status_code=404, detail="Wallet not found")
+
+        # Decrypt private key
+        try:
+            private_key = decrypt_private_key(wallet.encrypted_private_key, request.password)
+        except:
+            raise HTTPException(status_code=401, detail="Invalid password")
+
+        # Import keypair
+        keypair = import_wallet(private_key, "private_key")
+
+        # Execute buy using TradeExecutor
+        from trading.executor import TradeExecutor
+
+        executor = TradeExecutor(request.wallet_id, keypair)
+        result = await executor.execute_buy(
+            token_address=request.token_address,
+            sol_amount=request.sol_amount,
+            slippage=request.slippage,
+            strategy="manual_snipe"
+        )
+
+        if not result["success"]:
+            raise HTTPException(status_code=400, detail=result.get("error", "Snipe failed"))
+
+        return {
+            "success": True,
+            "message": "Manual snipe executed successfully",
+            "wallet_id": request.wallet_id,
+            "wallet_address": wallet.public_key,
+            "token_address": request.token_address,
+            "sol_amount": request.sol_amount,
+            **result
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Manual snipe error: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        close_db(db)
+
+@router.post("/group-snipe")
+async def group_snipe(request: GroupSnipeRequest, db: Session = Depends(get_db)):
+    """
+    Snipe a specific token with all wallets in a group simultaneously
+
+    All wallets will buy the same token at the same time
+    """
+    try:
+        # Get group
+        group = db.query(WalletGroup).filter(WalletGroup.id == request.group_id).first()
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+
+        # Get all wallets in group
+        wallets = db.query(Wallet).filter(Wallet.group_id == request.group_id).all()
+        if not wallets:
+            raise HTTPException(status_code=404, detail="No wallets found in group")
+
+        # Verify password with first wallet
+        try:
+            decrypt_private_key(wallets[0].encrypted_private_key, request.password)
+        except:
+            raise HTTPException(status_code=401, detail="Invalid password")
+
+        # Execute snipe for each wallet
+        from trading.executor import TradeExecutor
+        results = []
+
+        for wallet in wallets:
+            try:
+                # Decrypt wallet
+                private_key = decrypt_private_key(wallet.encrypted_private_key, request.password)
+                keypair = import_wallet(private_key, "private_key")
+
+                # Execute buy
+                executor = TradeExecutor(wallet.id, keypair)
+                result = await executor.execute_buy(
+                    token_address=request.token_address,
+                    sol_amount=request.sol_amount_per_wallet,
+                    slippage=request.slippage,
+                    strategy="group_snipe"
+                )
+
+                results.append({
+                    "wallet_id": wallet.id,
+                    "wallet_index": wallet.wallet_index,
+                    "wallet_label": wallet.label,
+                    "wallet_address": wallet.public_key,
+                    **result
+                })
+
+            except Exception as e:
+                results.append({
+                    "wallet_id": wallet.id,
+                    "wallet_index": wallet.wallet_index,
+                    "wallet_label": wallet.label,
+                    "wallet_address": wallet.public_key,
+                    "success": False,
+                    "error": str(e)
+                })
+
+        successful = sum(1 for r in results if r.get("success"))
+        failed = len(results) - successful
+
+        return {
+            "success": True,
+            "message": f"Group snipe completed: {successful}/{len(results)} successful",
+            "group_id": request.group_id,
+            "group_name": group.name,
+            "token_address": request.token_address,
+            "total_wallets": len(results),
+            "successful": successful,
+            "failed": failed,
+            "total_sol_spent": successful * request.sol_amount_per_wallet,
+            "results": results
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Group snipe error: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         close_db(db)
