@@ -21,21 +21,43 @@ export function WalletSelector({ value, onChange, placeholder = 'Select a wallet
   const [search, setSearch] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [loadingBalances, setLoadingBalances] = useState(false)
 
   useEffect(() => {
-    loadWallets()
+    loadWalletsFast()
   }, [])
 
-  const loadWallets = async () => {
+  const loadWalletsFast = async () => {
     try {
       setLoading(true)
-      const response = await api.get('/wallet/list')
+      // First load wallets without balance (FAST - instant)
+      const response = await api.get('/wallet/list?include_balance=false')
       setWallets(response.data || [])
+      setLoading(false)
+
+      // Then load balances in background (slower but doesn't block UI)
+      loadBalances()
     } catch (error) {
       console.error('Failed to load wallets:', error)
-    } finally {
       setLoading(false)
     }
+  }
+
+  const loadBalances = async () => {
+    try {
+      setLoadingBalances(true)
+      // Load wallets WITH balance in parallel (optimized backend)
+      const response = await api.get('/wallet/list?include_balance=true')
+      setWallets(response.data || [])
+    } catch (error) {
+      console.error('Failed to load balances:', error)
+    } finally {
+      setLoadingBalances(false)
+    }
+  }
+
+  const loadWallets = () => {
+    loadWalletsFast()
   }
 
   const filteredWallets = wallets.filter(wallet =>
@@ -68,7 +90,7 @@ export function WalletSelector({ value, onChange, placeholder = 'Select a wallet
           )}
         </div>
         <div className="flex items-center gap-2 ml-2">
-          {loading && <RefreshCw className="h-4 w-4 animate-spin" />}
+          {(loading || loadingBalances) && <RefreshCw className="h-4 w-4 animate-spin" />}
           <svg
             className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
             fill="none"
@@ -97,9 +119,10 @@ export function WalletSelector({ value, onChange, placeholder = 'Select a wallet
             <button
               type="button"
               onClick={loadWallets}
-              className="mt-2 w-full text-xs text-muted-foreground hover:text-foreground flex items-center justify-center gap-1"
+              disabled={loading}
+              className="mt-2 w-full text-xs text-muted-foreground hover:text-foreground flex items-center justify-center gap-1 disabled:opacity-50"
             >
-              <RefreshCw className="h-3 w-3" />
+              <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
               Refresh wallets
             </button>
           </div>
@@ -107,7 +130,7 @@ export function WalletSelector({ value, onChange, placeholder = 'Select a wallet
           <div className="max-h-60 overflow-y-auto">
             {filteredWallets.length === 0 ? (
               <div className="p-4 text-center text-sm text-muted-foreground">
-                {search ? 'No wallets found' : 'No wallets available'}
+                {loading ? 'Loading wallets...' : search ? 'No wallets found' : 'No wallets available'}
               </div>
             ) : (
               filteredWallets.map(wallet => (
@@ -132,7 +155,7 @@ export function WalletSelector({ value, onChange, placeholder = 'Select a wallet
                     </div>
                     <div className="flex flex-col items-end flex-shrink-0">
                       <div className="text-xs text-muted-foreground">ID: {wallet.id}</div>
-                      <div className="text-sm font-semibold text-green-400">
+                      <div className={`text-sm font-semibold ${loadingBalances ? 'text-muted-foreground animate-pulse' : 'text-green-400'}`}>
                         {wallet.balance.toFixed(4)} SOL
                       </div>
                     </div>

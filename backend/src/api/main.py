@@ -1,8 +1,9 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 from sqlalchemy.orm import Session
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
 import os
 
@@ -151,22 +152,58 @@ def import_wallet_endpoint(request: ImportWalletRequest, db: Session = Depends(g
         close_db(db)
 
 @app.get("/wallet/list", response_model=List[WalletResponse])
-def list_wallets(db: Session = Depends(get_db)):
-    """List all wallets"""
+def list_wallets(
+    include_balance: bool = Query(default=True, description="Include balance (slower)"),
+    db: Session = Depends(get_db)
+):
+    """List all wallets with optional balance loading"""
     try:
         wallets = db.query(Wallet).all()
-        
+
+        if not include_balance:
+            # Fast path: return wallets without balance
+            return [
+                WalletResponse(
+                    id=wallet.id,
+                    label=wallet.label,
+                    public_key=wallet.public_key,
+                    balance=0.0,
+                    is_primary=wallet.is_primary
+                )
+                for wallet in wallets
+            ]
+
+        # Parallel balance fetching for better performance
+        def get_wallet_with_balance(wallet):
+            try:
+                balance = get_balance(wallet.public_key)
+                return WalletResponse(
+                    id=wallet.id,
+                    label=wallet.label,
+                    public_key=wallet.public_key,
+                    balance=balance,
+                    is_primary=wallet.is_primary
+                )
+            except Exception as e:
+                print(f"Error getting balance for {wallet.label}: {e}")
+                return WalletResponse(
+                    id=wallet.id,
+                    label=wallet.label,
+                    public_key=wallet.public_key,
+                    balance=0.0,
+                    is_primary=wallet.is_primary
+                )
+
+        # Use ThreadPoolExecutor for parallel balance fetching
         result = []
-        for wallet in wallets:
-            balance = get_balance(wallet.public_key)
-            result.append(WalletResponse(
-                id=wallet.id,
-                label=wallet.label,
-                public_key=wallet.public_key,
-                balance=balance,
-                is_primary=wallet.is_primary
-            ))
-        
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(get_wallet_with_balance, wallet): wallet for wallet in wallets}
+            for future in as_completed(futures):
+                result.append(future.result())
+
+        # Sort by ID to maintain order
+        result.sort(key=lambda x: x.id)
+
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
