@@ -3,6 +3,7 @@ import { Plus, Users, Trash2, DollarSign, TrendingUp, TrendingDown, RefreshCw } 
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
+import { WalletSelector } from '../components/wallet/WalletSelector';
 import api from '../services/api';
 
 interface WalletGroup {
@@ -42,6 +43,10 @@ export default function Groups() {
   const [showCollectModal, setShowCollectModal] = useState(false);
   const [showBulkBuyModal, setShowBulkBuyModal] = useState(false);
   const [showBulkSellModal, setShowBulkSellModal] = useState(false);
+
+  // Wallet Selection State
+  const [selectedFromWalletId, setSelectedFromWalletId] = useState<number | null>(null);
+  const [selectedToWalletId, setSelectedToWalletId] = useState<number | null>(null);
 
   // Load groups on mount
   useEffect(() => {
@@ -122,11 +127,16 @@ export default function Groups() {
   const handleDistributeSOL = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    
+
+    if (!selectedFromWalletId) {
+      alert('❌ Please select a source wallet');
+      return;
+    }
+
     try {
       setLoading(true);
       const response = await api.post('/group/distribute-sol', {
-        from_wallet_id: parseInt(formData.get('from_wallet_id') as string),
+        from_wallet_id: selectedFromWalletId,
         to_group_id: selectedGroup,
         amount_per_wallet: parseFloat(formData.get('amount_per_wallet') as string),
         password: formData.get('password') as string
@@ -134,6 +144,7 @@ export default function Groups() {
 
       alert(`✅ Distributed SOL successfully!\n\nTotal: ${response.data.total_sol_sent} SOL sent to ${response.data.successful} wallets`);
       setShowDistributeModal(false);
+      setSelectedFromWalletId(null);
       loadGroupDetails(selectedGroup!);
     } catch (error: any) {
       alert('❌ Failed: ' + (error.response?.data?.detail || error.message));
@@ -145,18 +156,24 @@ export default function Groups() {
   const handleCollectSOL = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    
+
+    if (!selectedToWalletId) {
+      alert('❌ Please select a destination wallet');
+      return;
+    }
+
     try {
       setLoading(true);
       const response = await api.post('/group/collect-sol', {
         from_group_id: selectedGroup,
-        to_wallet_id: parseInt(formData.get('to_wallet_id') as string),
+        to_wallet_id: selectedToWalletId,
         password: formData.get('password') as string,
         leave_amount: parseFloat(formData.get('leave_amount') as string || '0.001')
       });
 
       alert(`✅ Collected SOL successfully!\n\nTotal: ${response.data.total_collected} SOL collected from ${response.data.successful} wallets`);
       setShowCollectModal(false);
+      setSelectedToWalletId(null);
       loadGroupDetails(selectedGroup!);
     } catch (error: any) {
       alert('❌ Failed: ' + (error.response?.data?.detail || error.message));
@@ -471,13 +488,15 @@ export default function Groups() {
             <CardContent>
               <form onSubmit={handleDistributeSOL} className="space-y-4">
                 <div>
-                  <label className="text-sm font-medium">From Wallet ID</label>
-                  <Input
-                    name="from_wallet_id"
-                    type="number"
-                    placeholder="Source wallet ID"
-                    required
+                  <label className="text-sm font-medium">From Wallet</label>
+                  <WalletSelector
+                    value={selectedFromWalletId}
+                    onChange={setSelectedFromWalletId}
+                    placeholder="Select source wallet"
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Choose wallet with enough balance to distribute
+                  </p>
                 </div>
                 <div>
                   <label className="text-sm font-medium">Amount per Wallet (SOL)</label>
@@ -530,13 +549,15 @@ export default function Groups() {
             <CardContent>
               <form onSubmit={handleCollectSOL} className="space-y-4">
                 <div>
-                  <label className="text-sm font-medium">To Wallet ID</label>
-                  <Input
-                    name="to_wallet_id"
-                    type="number"
-                    placeholder="Destination wallet ID"
-                    required
+                  <label className="text-sm font-medium">To Wallet</label>
+                  <WalletSelector
+                    value={selectedToWalletId}
+                    onChange={setSelectedToWalletId}
+                    placeholder="Select destination wallet"
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    All SOL from group wallets will be sent here
+                  </p>
                 </div>
                 <div>
                   <label className="text-sm font-medium">Leave Amount (SOL)</label>
