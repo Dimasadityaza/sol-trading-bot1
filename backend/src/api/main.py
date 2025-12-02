@@ -300,3 +300,66 @@ def set_network(config: NetworkConfig):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+
+@app.get("/price/sol")
+async def get_sol_price():
+    """Get current SOL price in USD"""
+    try:
+        from utils.price_feed import get_price_feed
+        
+        price_feed = get_price_feed()
+        sol_price = await price_feed.get_sol_price_usd()
+        
+        if sol_price is None:
+            raise HTTPException(status_code=503, detail="Unable to fetch SOL price")
+        
+        return {
+            "symbol": "SOL",
+            "price_usd": sol_price,
+            "timestamp": "now"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/wallet/list-with-usd")
+async def list_wallets_with_usd(db: Session = Depends(get_db)):
+    """List all wallets with USD values"""
+    try:
+        from utils.price_feed import get_price_feed
+        
+        # Get SOL price
+        price_feed = get_price_feed()
+        sol_price = await price_feed.get_sol_price_usd()
+        
+        if sol_price is None:
+            # Fallback to balance only if price fetch fails
+            sol_price = 0.0
+        
+        wallets = db.query(Wallet).all()
+        
+        result = []
+        for wallet in wallets:
+            balance_sol = get_balance(wallet.public_key)
+            balance_usd = balance_sol * sol_price if sol_price > 0 else 0.0
+            
+            result.append({
+                "id": wallet.id,
+                "label": wallet.label,
+                "public_key": wallet.public_key,
+                "balance_sol": balance_sol,
+                "balance_usd": balance_usd,
+                "is_primary": wallet.is_primary,
+                "group_id": wallet.group_id
+            })
+        
+        return {
+            "sol_price_usd": sol_price,
+            "wallets": result,
+            "total_wallets": len(result)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        close_db(db)

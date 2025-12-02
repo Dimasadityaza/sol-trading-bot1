@@ -259,6 +259,31 @@ export default function Groups() {
     }
   };
 
+  const handleRemoveWalletFromGroup = async (walletId: number, walletLabel: string) => {
+    if (!confirm(`Remove "${walletLabel}" from this group?\n\nWallet will not be deleted, only removed from the group.`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const response = await api.post('/group/remove-wallet', {
+        wallet_id: walletId
+      });
+
+      alert(`✅ ${response.data.message}`);
+
+      // Reload group details
+      if (selectedGroup) {
+        loadGroupDetails(selectedGroup);
+        loadGroups();
+      }
+    } catch (error: any) {
+      alert('❌ Failed to remove wallet: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -416,6 +441,7 @@ export default function Groups() {
                           <th className="px-4 py-2 text-left text-xs font-semibold">Label</th>
                           <th className="px-4 py-2 text-left text-xs font-semibold">Address</th>
                           <th className="px-4 py-2 text-right text-xs font-semibold">Balance</th>
+                          <th className="px-4 py-2 text-center text-xs font-semibold">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -430,6 +456,17 @@ export default function Groups() {
                               </td>
                               <td className="px-4 py-2 text-sm text-right">
                                 {balance?.balance?.toFixed(4) || '0.0000'} SOL
+                              </td>
+                              <td className="px-4 py-2 text-center">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleRemoveWalletFromGroup(wallet.id, wallet.label)}
+                                  className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                                  disabled={loading}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
                               </td>
                             </tr>
                           );

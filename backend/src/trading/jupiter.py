@@ -27,36 +27,78 @@ class JupiterClient:
         input_mint: str,
         output_mint: str,
         amount: int,
-        slippage_bps: int = 50  # 0.5% default
+        slippage_bps: int = 50,  # 0.5% default
+        max_retries: int = 3
     ) -> Optional[Dict[str, Any]]:
         """
-        Get swap quote from Jupiter
-        
+        Get swap quote from Jupiter with retry logic
+
         Args:
             input_mint: Input token mint address
             output_mint: Output token mint address
             amount: Amount in smallest unit (lamports for SOL)
             slippage_bps: Slippage in basis points (50 = 0.5%)
-        
+            max_retries: Maximum retry attempts
+
         Returns:
             Quote data or None if failed
         """
-        try:
-            async with httpx.AsyncClient() as client:
-                params = {
-                    "inputMint": input_mint,
-                    "outputMint": output_mint,
-                    "amount": str(amount),
-                    "slippageBps": slippage_bps,
-                }
-                
-                response = await client.get(f"{self.api_url}/quote", params=params)
-                response.raise_for_status()
-                
-                return response.json()
-        except Exception as e:
-            print(f"Error getting quote: {e}")
-            return None
+        import asyncio
+
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    params = {
+                        "inputMint": input_mint,
+                        "outputMint": output_mint,
+                        "amount": str(amount),
+                        "slippageBps": slippage_bps,
+                    }
+
+                    print(f"📡 Getting quote from Jupiter (attempt {attempt + 1}/{max_retries})...")
+                    print(f"   Input: {input_mint[:8]}... Amount: {amount}")
+                    print(f"   Output: {output_mint[:8]}... Slippage: {slippage_bps}bps")
+
+                    response = await client.get(f"{self.api_url}/quote", params=params)
+
+                    # Check response status
+                    if response.status_code == 200:
+                        data = response.json()
+
+                        # Validate response has required fields
+                        if 'outAmount' in data and 'routePlan' in data:
+                            print(f"✅ Quote received: {data.get('outAmount')} output tokens")
+                            return data
+                        else:
+                            print(f"⚠️ Invalid quote response: {data}")
+                            raise ValueError("Invalid quote format")
+
+                    elif response.status_code == 404:
+                        print(f"❌ No route found for this token pair")
+                        return None
+
+                    else:
+                        print(f"❌ Jupiter API error: {response.status_code}")
+                        print(f"   Response: {response.text}")
+                        response.raise_for_status()
+
+            except httpx.TimeoutException:
+                print(f"⏱️ Request timeout (attempt {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 * (attempt + 1))  # Exponential backoff
+
+            except httpx.HTTPError as e:
+                print(f"🌐 HTTP error: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 * (attempt + 1))
+
+            except Exception as e:
+                print(f"❌ Error getting quote: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2 * (attempt + 1))
+
+        print(f"❌ Failed to get quote after {max_retries} attempts")
+        return None
     
     async def get_swap_transaction(
         self,
