@@ -4,7 +4,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import api from '../services/api';
 
-export default function Settings() {
+export function Settings() {
   const [network, setNetwork] = useState('devnet');
   const [rpcEndpoint, setRpcEndpoint] = useState('');
   const [wsEndpoint, setWsEndpoint] = useState('');
