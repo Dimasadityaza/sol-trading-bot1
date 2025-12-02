@@ -153,13 +153,14 @@ class BulkOperations:
             for wallet in source_wallets:
                 try:
                     # Get balance
-                    balance_resp = self.client.get_balance(wallet.public_key)
+                    wallet_pubkey = Pubkey.from_string(wallet.public_key)
+                    balance_resp = self.client.get_balance(wallet_pubkey)
                     balance_lamports = balance_resp.value
                     balance_sol = balance_lamports / 1e9
-                    
+
                     # Calculate amount to send (leave some for rent)
                     send_amount = balance_sol - leave_amount
-                    
+
                     if send_amount <= 0:
                         results.append({
                             "wallet_id": wallet.id,
@@ -170,7 +171,7 @@ class BulkOperations:
                             "message": "Insufficient balance"
                         })
                         continue
-                    
+
                     # Decrypt and import keypair
                     private_key = decrypt_private_key(wallet.encrypted_private_key, password)
                     source_keypair = import_wallet(private_key, "private_key")

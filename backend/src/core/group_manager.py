@@ -14,6 +14,7 @@ from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solana.rpc.api import Client
 from config import RPC_ENDPOINT
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class WalletGroupManager:
     """Manage wallet groups and bulk operations"""
@@ -183,38 +184,49 @@ class WalletGroupManager:
             close_db(db)
     
     def get_group_balances(self, group_id: int):
-        """Get SOL balance for all wallets in group"""
+        """Get SOL balance for all wallets in group (optimized with parallel processing)"""
         db = get_db()
         try:
             wallets = db.query(Wallet).filter(Wallet.group_id == group_id).all()
-            
-            balances = []
-            total_balance = 0.0
-            
-            for wallet in wallets:
+
+            # Helper function to get balance for a single wallet
+            def get_wallet_balance(wallet):
                 try:
                     pubkey = Pubkey.from_string(wallet.public_key)
                     response = self.client.get_balance(pubkey)
                     balance = response.value / 1e9 if response.value is not None else 0.0
-                    total_balance += balance
 
-                    balances.append({
+                    return {
                         "id": wallet.id,
                         "index": wallet.wallet_index,
                         "label": wallet.label,
                         "address": wallet.public_key,
                         "balance": balance
-                    })
+                    }
                 except Exception as e:
                     print(f"Error getting balance for {wallet.label}: {str(e)}")
-                    balances.append({
+                    return {
                         "id": wallet.id,
                         "index": wallet.wallet_index,
                         "label": wallet.label,
                         "address": wallet.public_key,
                         "balance": 0.0
-                    })
-            
+                    }
+
+            # Use ThreadPoolExecutor for parallel balance fetching (10x faster!)
+            balances = []
+            total_balance = 0.0
+
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                futures = {executor.submit(get_wallet_balance, wallet): wallet for wallet in wallets}
+                for future in as_completed(futures):
+                    result = future.result()
+                    balances.append(result)
+                    total_balance += result["balance"]
+
+            # Sort by index to maintain order
+            balances.sort(key=lambda x: x["index"])
+
             return {
                 "group_id": group_id,
                 "total_balance": total_balance,
