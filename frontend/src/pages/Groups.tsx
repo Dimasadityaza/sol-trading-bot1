@@ -27,6 +27,7 @@ export default function Groups() {
   const [groupWallets, setGroupWallets] = useState<GroupWallet[]>([]);
   const [groupBalances, setGroupBalances] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [allWallets, setAllWallets] = useState<any[]>([]);
 
   // Create Group Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -43,9 +44,10 @@ export default function Groups() {
   const [showBulkBuyModal, setShowBulkBuyModal] = useState(false);
   const [showBulkSellModal, setShowBulkSellModal] = useState(false);
 
-  // Load groups on mount
+  // Load groups and wallets on mount
   useEffect(() => {
     loadGroups();
+    loadAllWallets();
   }, []);
 
   // Load group details when selected
@@ -64,6 +66,15 @@ export default function Groups() {
     }
   };
 
+  const loadAllWallets = async () => {
+    try {
+      const response = await api.get('/wallet/list');
+      setAllWallets(response.data.wallets || []);
+    } catch (error) {
+      console.error('Failed to load wallets:', error);
+    }
+  };
+
   const loadGroupDetails = async (groupId: number) => {
     try {
       setLoading(true);
@@ -71,7 +82,7 @@ export default function Groups() {
         api.get(`/group/${groupId}/wallets`),
         api.get(`/group/${groupId}/balances`)
       ]);
-      
+
       setGroupWallets(walletsRes.data.wallets || []);
       setGroupBalances(balancesRes.data);
     } catch (error) {
@@ -132,7 +143,10 @@ export default function Groups() {
         password: formData.get('password') as string
       });
 
-      alert(`✅ Distributed SOL successfully!\n\nTotal: ${response.data.total_sol_sent} SOL sent to ${response.data.successful} wallets`);
+      alert(`✅ Distributed SOL successfully!\n\n` +
+            `Per Wallet: ${formData.get('amount_per_wallet')} SOL\n` +
+            `Total Sent: ${response.data.total_sol_sent} SOL to ${response.data.successful} wallets\n` +
+            `Failed: ${response.data.failed} wallets`);
       setShowDistributeModal(false);
       loadGroupDetails(selectedGroup!);
     } catch (error: any) {
@@ -155,7 +169,11 @@ export default function Groups() {
         leave_amount: parseFloat(formData.get('leave_amount') as string || '0.001')
       });
 
-      alert(`✅ Collected SOL successfully!\n\nTotal: ${response.data.total_collected} SOL collected from ${response.data.successful} wallets`);
+      alert(`✅ Collected SOL successfully!\n\n` +
+            `Total Collected: ${response.data.total_collected.toFixed(4)} SOL\n` +
+            `From: ${response.data.successful} wallets\n` +
+            `To Wallet: ${response.data.target_wallet}\n` +
+            `Failed: ${response.data.failed} wallets`);
       setShowCollectModal(false);
       loadGroupDetails(selectedGroup!);
     } catch (error: any) {
@@ -471,13 +489,20 @@ export default function Groups() {
             <CardContent>
               <form onSubmit={handleDistributeSOL} className="space-y-4">
                 <div>
-                  <label className="text-sm font-medium">From Wallet ID</label>
-                  <Input
+                  <label className="text-sm font-medium">From Wallet (Source)</label>
+                  <select
                     name="from_wallet_id"
-                    type="number"
-                    placeholder="Source wallet ID"
                     required
-                  />
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select source wallet...</option>
+                    {allWallets.map((wallet) => (
+                      <option key={wallet.id} value={wallet.id}>
+                        ID: {wallet.id} | {wallet.label} | {wallet.address.slice(0, 8)}...{wallet.address.slice(-6)}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">Wallet to send SOL from</p>
                 </div>
                 <div>
                   <label className="text-sm font-medium">Amount per Wallet (SOL)</label>
@@ -487,9 +512,16 @@ export default function Groups() {
                     step="0.001"
                     placeholder="0.1"
                     required
+                    onChange={(e) => {
+                      const input = e.target.nextElementSibling;
+                      if (input && e.target.value) {
+                        const total = parseFloat(e.target.value) * groupWallets.length;
+                        (input as HTMLElement).textContent = `Each wallet gets ${e.target.value} SOL (Total: ${total.toFixed(3)} SOL for ${groupWallets.length} wallets)`;
+                      }
+                    }}
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Total: {groupWallets.length} wallets × amount
+                    Each wallet gets [amount] SOL (Total: {groupWallets.length} wallets × amount)
                   </p>
                 </div>
                 <div>
@@ -530,13 +562,20 @@ export default function Groups() {
             <CardContent>
               <form onSubmit={handleCollectSOL} className="space-y-4">
                 <div>
-                  <label className="text-sm font-medium">To Wallet ID</label>
-                  <Input
+                  <label className="text-sm font-medium">To Wallet (Destination)</label>
+                  <select
                     name="to_wallet_id"
-                    type="number"
-                    placeholder="Destination wallet ID"
                     required
-                  />
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select destination wallet...</option>
+                    {allWallets.map((wallet) => (
+                      <option key={wallet.id} value={wallet.id}>
+                        ID: {wallet.id} | {wallet.label} | {wallet.address.slice(0, 8)}...{wallet.address.slice(-6)}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">Wallet to collect SOL into</p>
                 </div>
                 <div>
                   <label className="text-sm font-medium">Leave Amount (SOL)</label>
