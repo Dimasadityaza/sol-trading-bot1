@@ -448,3 +448,229 @@ async def group_snipe(request: GroupSnipeRequest, db: Session = Depends(get_db))
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         close_db(db)
+
+class PreLaunchMonitorRequest(BaseModel):
+    wallet_id: int
+    token_address: str
+    sol_amount: float
+    slippage: float = 5.0
+    min_liquidity: float = 1.0
+    platforms: list = ["raydium", "pumpfun"]
+    password: str
+
+class GroupPreLaunchMonitorRequest(BaseModel):
+    group_id: int
+    token_address: str
+    sol_amount_per_wallet: float
+    slippage: float = 5.0
+    min_liquidity: float = 1.0
+    platforms: list = ["raydium", "pumpfun"]
+    password: str
+
+@router.post("/pre-launch-monitor")
+async def start_pre_launch_monitor(
+    request: PreLaunchMonitorRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Monitor a specific token and auto-buy when liquidity is added
+    
+    Perfect for pre-launch tokens - system will detect when liquidity pool
+    is created and immediately execute buy order
+    """
+    try:
+        # Get wallet
+        wallet = db.query(Wallet).filter(Wallet.id == request.wallet_id).first()
+        if not wallet:
+            raise HTTPException(status_code=404, detail="Wallet not found")
+
+        # Decrypt private key
+        try:
+            private_key = decrypt_private_key(wallet.encrypted_private_key, request.password)
+        except:
+            raise HTTPException(status_code=401, detail="Invalid password")
+
+        # Import keypair
+        keypair = import_wallet(private_key, "private_key")
+
+        # Start liquidity monitor
+        from trading.liquidity_monitor import get_liquidity_monitor
+        
+        monitor = get_liquidity_monitor()
+        result = await monitor.start_monitor(
+            token_address=request.token_address,
+            wallet_id=request.wallet_id,
+            keypair=keypair,
+            sol_amount=request.sol_amount,
+            slippage=request.slippage,
+            min_liquidity=request.min_liquidity,
+            platforms=request.platforms
+        )
+
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error"))
+
+        return {
+            **result,
+            "message": f"Pre-launch monitor started for {request.token_address}",
+            "wallet_address": wallet.public_key,
+            "info": "System will auto-buy when liquidity pool is detected"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Pre-launch monitor error: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        close_db(db)
+
+@router.post("/group-pre-launch-monitor")
+async def start_group_pre_launch_monitor(
+    request: GroupPreLaunchMonitorRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Monitor token with all wallets in group and auto-buy when liquidity is added
+    
+    All wallets will automatically buy the token when liquidity pool is detected
+    """
+    try:
+        # Get group
+        group = db.query(WalletGroup).filter(WalletGroup.id == request.group_id).first()
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+
+        # Get all wallets in group
+        wallets = db.query(Wallet).filter(Wallet.group_id == request.group_id).all()
+        if not wallets:
+            raise HTTPException(status_code=404, detail="No wallets found in group")
+
+        # Verify password with first wallet
+        try:
+            decrypt_private_key(wallets[0].encrypted_private_key, request.password)
+        except:
+            raise HTTPException(status_code=401, detail="Invalid password")
+
+        # Start monitor for each wallet
+        from trading.liquidity_monitor import get_liquidity_monitor
+        
+        monitor = get_liquidity_monitor()
+        results = []
+
+        for wallet in wallets:
+            try:
+                # Decrypt wallet
+                private_key = decrypt_private_key(wallet.encrypted_private_key, request.password)
+                keypair = import_wallet(private_key, "private_key")
+
+                # Start monitor
+                result = await monitor.start_monitor(
+                    token_address=request.token_address,
+                    wallet_id=wallet.id,
+                    keypair=keypair,
+                    sol_amount=request.sol_amount_per_wallet,
+                    slippage=request.slippage,
+                    min_liquidity=request.min_liquidity,
+                    platforms=request.platforms
+                )
+
+                results.append({
+                    "wallet_id": wallet.id,
+                    "wallet_label": wallet.label,
+                    "wallet_address": wallet.public_key,
+                    **result
+                })
+
+            except Exception as e:
+                results.append({
+                    "wallet_id": wallet.id,
+                    "wallet_label": wallet.label,
+                    "success": False,
+                    "error": str(e)
+                })
+
+        successful = sum(1 for r in results if r.get("success"))
+
+        return {
+            "success": True,
+            "message": f"Pre-launch monitor started for {successful}/{len(wallets)} wallets",
+            "group_id": request.group_id,
+            "group_name": group.name,
+            "token_address": request.token_address,
+            "total_wallets": len(wallets),
+            "monitoring": successful,
+            "failed": len(wallets) - successful,
+            "info": "All wallets will auto-buy when liquidity pool is detected",
+            "results": results
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Group pre-launch monitor error: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        close_db(db)
+
+@router.post("/stop-monitor/{monitor_id}")
+async def stop_monitor(monitor_id: str):
+    """Stop a pre-launch monitor"""
+    try:
+        from trading.liquidity_monitor import get_liquidity_monitor
+        
+        monitor = get_liquidity_monitor()
+        result = await monitor.stop_monitor(monitor_id)
+
+        if not result.get("success"):
+            raise HTTPException(status_code=404, detail=result.get("error"))
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/monitor-status/{monitor_id}")
+def get_monitor_status(monitor_id: str):
+    """Get status of a specific monitor"""
+    try:
+        from trading.liquidity_monitor import get_liquidity_monitor
+        
+        monitor = get_liquidity_monitor()
+        status = monitor.get_monitor_status(monitor_id)
+
+        if not status:
+            raise HTTPException(status_code=404, detail="Monitor not found")
+
+        return {
+            "success": True,
+            "monitor_id": monitor_id,
+            **status
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/active-monitors")
+def list_active_monitors():
+    """List all active pre-launch monitors"""
+    try:
+        from trading.liquidity_monitor import get_liquidity_monitor
+        
+        monitor = get_liquidity_monitor()
+        monitors = monitor.list_active_monitors()
+
+        return {
+            "success": True,
+            "total_monitors": len(monitors),
+            "monitors": monitors
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
