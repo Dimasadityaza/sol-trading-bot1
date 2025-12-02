@@ -187,10 +187,10 @@ class WalletGroupManager:
         db = get_db()
         try:
             wallets = db.query(Wallet).filter(Wallet.group_id == group_id).all()
-            
+
             balances = []
             total_balance = 0.0
-            
+
             for wallet in wallets:
                 try:
                     pubkey = Pubkey.from_string(wallet.public_key)
@@ -214,12 +214,123 @@ class WalletGroupManager:
                         "address": wallet.public_key,
                         "balance": 0.0
                     })
-            
+
             return {
                 "group_id": group_id,
                 "total_balance": total_balance,
                 "wallets": balances
             }
+        finally:
+            close_db(db)
+
+    def add_wallet_to_group(self, wallet_id: int, group_id: int):
+        """
+        Add an existing wallet to a group
+
+        Args:
+            wallet_id: ID of the wallet to add
+            group_id: ID of the group to add wallet to
+
+        Returns:
+            dict with success status and updated group info
+        """
+        db = get_db()
+        try:
+            # Check if wallet exists
+            wallet = db.query(Wallet).filter(Wallet.id == wallet_id).first()
+            if not wallet:
+                raise ValueError(f"Wallet with ID {wallet_id} not found")
+
+            # Check if group exists
+            group = db.query(WalletGroup).filter(WalletGroup.id == group_id).first()
+            if not group:
+                raise ValueError(f"Group with ID {group_id} not found")
+
+            # Check if wallet is already in a group
+            if wallet.group_id is not None:
+                raise ValueError(f"Wallet '{wallet.label}' is already in a group")
+
+            # Get next wallet index for this group
+            max_index = db.query(Wallet).filter(
+                Wallet.group_id == group_id
+            ).order_by(Wallet.wallet_index.desc()).first()
+
+            next_index = (max_index.wallet_index + 1) if max_index else 1
+
+            # Update wallet
+            wallet.group_id = group_id
+            wallet.wallet_index = next_index
+
+            # Update group wallet count
+            group.wallet_count = group.wallet_count + 1
+
+            db.commit()
+            db.refresh(wallet)
+            db.refresh(group)
+
+            return {
+                "success": True,
+                "message": f"Wallet '{wallet.label}' added to group '{group.name}'",
+                "wallet": {
+                    "id": wallet.id,
+                    "label": wallet.label,
+                    "address": wallet.public_key,
+                    "index": wallet.wallet_index
+                },
+                "group": {
+                    "id": group.id,
+                    "name": group.name,
+                    "wallet_count": group.wallet_count
+                }
+            }
+
+        except Exception as e:
+            db.rollback()
+            raise e
+        finally:
+            close_db(db)
+
+    def remove_wallet_from_group(self, wallet_id: int):
+        """
+        Remove a wallet from its group (but don't delete the wallet)
+
+        Args:
+            wallet_id: ID of the wallet to remove from group
+
+        Returns:
+            dict with success status
+        """
+        db = get_db()
+        try:
+            # Check if wallet exists
+            wallet = db.query(Wallet).filter(Wallet.id == wallet_id).first()
+            if not wallet:
+                raise ValueError(f"Wallet with ID {wallet_id} not found")
+
+            if wallet.group_id is None:
+                raise ValueError(f"Wallet '{wallet.label}' is not in any group")
+
+            # Get group for count update
+            group = db.query(WalletGroup).filter(WalletGroup.id == wallet.group_id).first()
+
+            # Remove from group
+            wallet.group_id = None
+            wallet.wallet_index = None
+
+            # Update group wallet count
+            if group:
+                group.wallet_count = max(0, group.wallet_count - 1)
+
+            db.commit()
+
+            return {
+                "success": True,
+                "message": f"Wallet '{wallet.label}' removed from group"
+            }
+
+        except Exception as e:
+            db.rollback()
+            raise e
         finally:
             close_db(db)
 

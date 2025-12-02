@@ -46,6 +46,13 @@ class BulkSellRequest(BaseModel):
     slippage: float = 1.0
     password: str
 
+class AddWalletToGroupRequest(BaseModel):
+    wallet_id: int
+    group_id: int
+
+class RemoveWalletFromGroupRequest(BaseModel):
+    wallet_id: int
+
 # Routes
 @router.post("/create")
 def create_group(request: CreateGroupRequest, db: Session = Depends(get_db)):
@@ -211,7 +218,7 @@ def bulk_buy(request: BulkBuyRequest, db: Session = Depends(get_db)):
 def bulk_sell(request: BulkSellRequest, db: Session = Depends(get_db)):
     """
     Sell token from all wallets in group simultaneously
-    
+
     All wallets will sell same token with same percentage and slippage
     """
     try:
@@ -224,6 +231,45 @@ def bulk_sell(request: BulkSellRequest, db: Session = Depends(get_db)):
             password=request.password
         )
         return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        close_db(db)
+
+@router.post("/add-wallet")
+def add_wallet_to_group(request: AddWalletToGroupRequest, db: Session = Depends(get_db)):
+    """
+    Add an existing wallet to a group
+
+    The wallet must not already be in a group
+    """
+    try:
+        manager = get_group_manager()
+        result = manager.add_wallet_to_group(
+            wallet_id=request.wallet_id,
+            group_id=request.group_id
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        close_db(db)
+
+@router.post("/remove-wallet")
+def remove_wallet_from_group(request: RemoveWalletFromGroupRequest, db: Session = Depends(get_db)):
+    """
+    Remove a wallet from its group (wallet is not deleted)
+
+    The wallet will remain in the system but won't be part of any group
+    """
+    try:
+        manager = get_group_manager()
+        result = manager.remove_wallet_from_group(wallet_id=request.wallet_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:

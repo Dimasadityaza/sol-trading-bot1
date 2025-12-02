@@ -42,6 +42,11 @@ export default function Groups() {
   const [showCollectModal, setShowCollectModal] = useState(false);
   const [showBulkBuyModal, setShowBulkBuyModal] = useState(false);
   const [showBulkSellModal, setShowBulkSellModal] = useState(false);
+  const [showImportWalletModal, setShowImportWalletModal] = useState(false);
+
+  // Available wallets (not in any group)
+  const [availableWallets, setAvailableWallets] = useState<any[]>([]);
+  const [selectedWalletToImport, setSelectedWalletToImport] = useState<number | null>(null);
 
   // Load groups on mount
   useEffect(() => {
@@ -193,7 +198,7 @@ export default function Groups() {
   const handleBulkSell = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    
+
     if (!confirm('Execute bulk sell from all wallets in this group?')) return;
 
     try {
@@ -210,6 +215,45 @@ export default function Groups() {
       setShowBulkSellModal(false);
     } catch (error: any) {
       alert('❌ Failed: ' + (error.response?.data?.detail || error.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadAvailableWallets = async () => {
+    try {
+      const response = await api.get('/wallet/list');
+      // Filter wallets that are not in any group
+      const wallets = response.data.filter((w: any) => !w.group_id);
+      setAvailableWallets(wallets);
+    } catch (error: any) {
+      console.error('Failed to load wallets:', error);
+      alert('❌ Failed to load wallets: ' + (error.response?.data?.detail || error.message));
+    }
+  };
+
+  const handleImportWallet = async () => {
+    if (!selectedWalletToImport || !selectedGroup) {
+      alert('❌ Please select a wallet to import');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const response = await api.post('/group/add-wallet', {
+        wallet_id: selectedWalletToImport,
+        group_id: selectedGroup
+      });
+
+      alert(`✅ ${response.data.message}`);
+      setShowImportWalletModal(false);
+      setSelectedWalletToImport(null);
+
+      // Reload group details
+      loadGroupDetails(selectedGroup);
+      loadGroups();
+    } catch (error: any) {
+      alert('❌ Failed to import wallet: ' + (error.response?.data?.detail || error.message));
     } finally {
       setLoading(false);
     }
@@ -316,7 +360,18 @@ export default function Groups() {
             ) : (
               <div className="space-y-4">
                 {/* Bulk Operations Buttons */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                  <Button
+                    onClick={() => {
+                      loadAvailableWallets();
+                      setShowImportWalletModal(true);
+                    }}
+                    variant="outline"
+                    className="gap-2 text-blue-400"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Import Wallet
+                  </Button>
                   <Button
                     onClick={() => setShowDistributeModal(true)}
                     variant="outline"
@@ -708,6 +763,76 @@ export default function Groups() {
                   </Button>
                 </div>
               </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Import Wallet Modal */}
+      {showImportWalletModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle className="text-blue-400">Import Wallet to Group</CardTitle>
+              <CardDescription>Add an existing wallet to this group</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Select Wallet</label>
+                  {availableWallets.length === 0 ? (
+                    <p className="text-gray-500 text-sm mt-2">
+                      No wallets available. All wallets are already in groups or no wallets exist.
+                    </p>
+                  ) : (
+                    <div className="mt-2 space-y-2 max-h-64 overflow-y-auto border border-gray-700 rounded-lg p-2">
+                      {availableWallets.map((wallet) => (
+                        <label
+                          key={wallet.id}
+                          className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                            selectedWalletToImport === wallet.id
+                              ? 'border-blue-500 bg-blue-500/10'
+                              : 'border-gray-700 hover:border-gray-600'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="wallet"
+                            value={wallet.id}
+                            checked={selectedWalletToImport === wallet.id}
+                            onChange={() => setSelectedWalletToImport(wallet.id)}
+                            className="h-4 w-4"
+                          />
+                          <div className="flex-1">
+                            <div className="font-medium">{wallet.label || `Wallet ${wallet.id}`}</div>
+                            <div className="text-xs text-gray-400 font-mono">
+                              {wallet.public_key.slice(0, 8)}...{wallet.public_key.slice(-8)}
+                            </div>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={handleImportWallet}
+                    disabled={loading || !selectedWalletToImport || availableWallets.length === 0}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700"
+                  >
+                    {loading ? 'Importing...' : 'Import Wallet'}
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setShowImportWalletModal(false);
+                      setSelectedWalletToImport(null);
+                    }}
+                    variant="outline"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </div>

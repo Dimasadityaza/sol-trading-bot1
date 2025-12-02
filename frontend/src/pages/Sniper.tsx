@@ -38,6 +38,8 @@ export function Sniper() {
   const [isSaving, setIsSaving] = useState(false)
   const [isStarting, setIsStarting] = useState(false)
   const [isStopping, setIsStopping] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
 
   // Load config when wallet selected
@@ -65,11 +67,30 @@ export function Sniper() {
   const loadConfig = async () => {
     if (!selectedWallet) return
 
+    setIsLoading(true)
+    setLoadError(null)
+
     try {
       const data = await sniperApi.getConfig(selectedWallet.id)
-      setConfig(data)
+      if (data && typeof data === 'object') {
+        setConfig({
+          wallet_id: selectedWallet.id,
+          buy_amount: data.buy_amount ?? 0.1,
+          slippage: data.slippage ?? 5.0,
+          min_liquidity: data.min_liquidity ?? 5.0,
+          min_safety_score: data.min_safety_score ?? 70,
+          require_mint_renounced: data.require_mint_renounced ?? true,
+          require_freeze_renounced: data.require_freeze_renounced ?? true,
+          max_buy_tax: data.max_buy_tax ?? 10.0,
+          max_sell_tax: data.max_sell_tax ?? 10.0,
+        })
+      } else {
+        throw new Error('Invalid config data received')
+      }
     } catch (error: any) {
-      // Config not found, create default config
+      console.error('Failed to load config:', error)
+
+      // Config not found or error, create default config
       const defaultConfig = {
         wallet_id: selectedWallet.id,
         buy_amount: 0.1,
@@ -84,22 +105,42 @@ export function Sniper() {
 
       setConfig(defaultConfig)
 
-      // Auto-save default config to backend
-      try {
-        await sniperApi.saveConfig(defaultConfig)
-        showMessage('success', 'Default sniper configuration created')
-      } catch (saveError) {
-        console.error('Failed to auto-save config:', saveError)
+      // Auto-save default config to backend (only if not a connection error)
+      if (error.code !== 'ERR_NETWORK' && !error.message?.includes('Network Error')) {
+        try {
+          await sniperApi.saveConfig(defaultConfig)
+          showMessage('success', 'Default sniper configuration created')
+        } catch (saveError) {
+          console.error('Failed to auto-save config:', saveError)
+          setLoadError('Unable to connect to backend. Using default configuration.')
+        }
+      } else {
+        setLoadError('Unable to connect to backend. Please ensure the server is running.')
       }
+    } finally {
+      setIsLoading(false)
     }
   }
 
   const fetchStatus = async () => {
     try {
       const data = await sniperApi.getStatus()
-      setStatus(data)
-    } catch (error) {
+      if (data && typeof data === 'object') {
+        setStatus({
+          is_running: data.is_running ?? false,
+          pools_detected: data.pools_detected ?? 0,
+          tokens_bought: data.tokens_bought ?? 0,
+          tokens_skipped: data.tokens_skipped ?? 0,
+          success_rate: data.success_rate ?? 0,
+        })
+      }
+    } catch (error: any) {
       console.error('Failed to fetch status:', error)
+      // Don't update status on error, keep previous state
+      // Only reset if status was marked as running but we can't reach backend
+      if (status.is_running && (error.code === 'ERR_NETWORK' || error.message?.includes('Network Error'))) {
+        setStatus(prev => ({ ...prev, is_running: false }))
+      }
     }
   }
 
@@ -194,11 +235,32 @@ export function Sniper() {
         </p>
       </div>
 
-      {!selectedWallet && (
+      {isLoading && (
+        <Card className="border-blue-500/50 bg-blue-500/10">
+          <CardContent className="py-4">
+            <p className="text-blue-500">
+              Loading configuration...
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {!selectedWallet && !isLoading && (
         <Card className="border-yellow-500/50 bg-yellow-500/10">
           <CardContent className="py-4">
             <p className="text-yellow-500">
               ⚠️ Please select a wallet from the Wallets page to configure sniper
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {loadError && (
+        <Card className="border-orange-500/50 bg-orange-500/10">
+          <CardContent className="py-4 flex items-center gap-2">
+            <AlertCircle className="h-5 w-5 text-orange-500" />
+            <p className="text-orange-500">
+              {loadError}
             </p>
           </CardContent>
         </Card>
