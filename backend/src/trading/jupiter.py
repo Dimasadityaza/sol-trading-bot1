@@ -95,7 +95,7 @@ class JupiterClient:
             print(f"Error getting swap transaction: {e}")
             return None
     
-    def execute_swap(
+    async def execute_swap(
         self,
         keypair: Keypair,
         swap_transaction: str,
@@ -103,49 +103,88 @@ class JupiterClient:
     ) -> Optional[str]:
         """
         Execute swap transaction
-        
+
         Args:
             keypair: User's keypair
             swap_transaction: Serialized transaction from Jupiter
             max_retries: Maximum number of retries
-        
+
         Returns:
             Transaction signature or None if failed
         """
         try:
             # Decode transaction
             transaction_bytes = base64.b64decode(swap_transaction)
-            transaction = Transaction.from_bytes(transaction_bytes)
-            
+
+            # Parse transaction (handle versioned transactions)
+            try:
+                transaction = Transaction.from_bytes(transaction_bytes)
+            except Exception as parse_error:
+                print(f"Error parsing transaction: {parse_error}")
+                print(f"Transaction bytes length: {len(transaction_bytes)}")
+                raise ValueError(f"Failed to parse transaction: {parse_error}")
+
             # Sign transaction
-            transaction.sign(keypair)
-            
+            try:
+                transaction.sign([keypair])
+            except AttributeError:
+                # Fallback for older solders version
+                transaction.sign(keypair)
+            except Exception as sign_error:
+                print(f"Error signing transaction: {sign_error}")
+                raise ValueError(f"Failed to sign transaction: {sign_error}")
+
             # Send transaction
             opts = {"skip_preflight": False, "preflight_commitment": Confirmed}
-            
+
             for attempt in range(max_retries):
                 try:
+                    print(f"Sending transaction (attempt {attempt + 1}/{max_retries})...")
+
+                    # Get raw transaction bytes
+                    raw_tx = bytes(transaction)
+                    print(f"Transaction size: {len(raw_tx)} bytes")
+
                     result = self.client.send_raw_transaction(
-                        bytes(transaction),
+                        raw_tx,
                         opts=opts
                     )
-                    
+
                     if result.value:
                         signature = str(result.value)
-                        print(f"Transaction sent: {signature}")
-                        
+                        print(f"✅ Transaction sent successfully: {signature}")
+
                         # Wait for confirmation
+                        print(f"Waiting for confirmation...")
                         self.client.confirm_transaction(result.value, commitment=Confirmed)
+                        print(f"✅ Transaction confirmed!")
                         return signature
+                    else:
+                        error_msg = "Transaction failed with no signature returned"
+                        print(f"❌ {error_msg}")
+                        if hasattr(result, 'error'):
+                            print(f"Error details: {result.error}")
+
                 except Exception as e:
-                    print(f"Attempt {attempt + 1} failed: {e}")
+                    error_msg = str(e)
+                    print(f"❌ Attempt {attempt + 1} failed: {error_msg}")
+
+                    # If this is the last attempt, raise the error
                     if attempt == max_retries - 1:
-                        raise
-            
+                        raise ValueError(f"Transaction failed after {max_retries} attempts: {error_msg}")
+
+                    # Wait before retry
+                    import asyncio
+                    await asyncio.sleep(2)
+
             return None
+
         except Exception as e:
-            print(f"Error executing swap: {e}")
-            return None
+            error_msg = str(e)
+            print(f"❌ Error executing swap: {error_msg}")
+            import traceback
+            print(f"Full traceback:\n{traceback.format_exc()}")
+            raise Exception(f"Swap execution failed: {error_msg}")
     
     async def swap(
         self,
@@ -157,36 +196,59 @@ class JupiterClient:
     ) -> Optional[str]:
         """
         Complete swap operation
-        
+
         Args:
             keypair: User's keypair
             input_mint: Input token mint
             output_mint: Output token mint
             amount: Amount to swap
             slippage_bps: Slippage tolerance
-        
+
         Returns:
             Transaction signature or None
         """
-        # Get quote
-        quote = await self.get_quote(input_mint, output_mint, amount, slippage_bps)
-        if not quote:
-            print("Failed to get quote")
-            return None
-        
-        # Get swap transaction
-        swap_tx = await self.get_swap_transaction(
-            quote,
-            str(keypair.pubkey()),
-            wrap_unwrap_sol=True
-        )
-        if not swap_tx:
-            print("Failed to get swap transaction")
-            return None
-        
-        # Execute swap
-        signature = self.execute_swap(keypair, swap_tx)
-        return signature
+        try:
+            print(f"🔄 Starting swap: {amount} from {input_mint[:8]}... to {output_mint[:8]}...")
+            print(f"📊 Slippage: {slippage_bps} bps ({slippage_bps/100}%)")
+
+            # Get quote
+            print("1️⃣ Getting quote from Jupiter...")
+            quote = await self.get_quote(input_mint, output_mint, amount, slippage_bps)
+            if not quote:
+                raise Exception("Failed to get quote from Jupiter API")
+
+            print(f"✅ Quote received")
+            if 'outAmount' in quote:
+                print(f"   Expected output: {quote['outAmount']}")
+
+            # Get swap transaction
+            print("2️⃣ Building swap transaction...")
+            swap_tx = await self.get_swap_transaction(
+                quote,
+                str(keypair.pubkey()),
+                wrap_unwrap_sol=True
+            )
+            if not swap_tx:
+                raise Exception("Failed to get swap transaction from Jupiter API")
+
+            print(f"✅ Swap transaction built")
+
+            # Execute swap (FIXED: Added await!)
+            print("3️⃣ Executing swap transaction...")
+            signature = await self.execute_swap(keypair, swap_tx)
+
+            if signature:
+                print(f"✅ Swap completed successfully!")
+                print(f"🔗 Signature: {signature}")
+
+            return signature
+
+        except Exception as e:
+            error_msg = str(e)
+            print(f"❌ Swap failed: {error_msg}")
+            import traceback
+            print(f"Full traceback:\n{traceback.format_exc()}")
+            raise Exception(f"Swap operation failed: {error_msg}")
 
 # Helper functions
 async def buy_token(

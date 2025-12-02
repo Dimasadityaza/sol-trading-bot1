@@ -234,49 +234,49 @@ class BulkOperations:
         finally:
             close_db(db)
     
-    def bulk_buy(self, group_id: int, token_address: str, sol_amount: float, slippage: float, password: str):
+    async def bulk_buy(self, group_id: int, token_address: str, sol_amount: float, slippage: float, password: str):
         """
         Buy token from all wallets in group simultaneously
-        
+
         Args:
             group_id: Wallet group ID
             token_address: Token to buy
             sol_amount: SOL amount per wallet
             slippage: Slippage percentage
             password: Password to decrypt wallets
-            
+
         Returns:
             dict with results
         """
         from trading.executor import TradeExecutor
-        
+
         db = get_db()
         try:
             wallets = db.query(Wallet).filter(Wallet.group_id == group_id).all()
-            
+
             results = []
-            
+
             for wallet in wallets:
                 try:
                     # Decrypt wallet
                     private_key = decrypt_private_key(wallet.encrypted_private_key, password)
                     keypair = import_wallet(private_key, "private_key")
-                    
-                    # Execute buy
+
+                    # Execute buy (FIXED: Added await!)
                     executor = TradeExecutor(wallet.id, keypair)
-                    result = executor.execute_buy(
+                    result = await executor.execute_buy(
                         token_address=token_address,
                         sol_amount=sol_amount,
                         slippage=slippage,
                         strategy="bulk_buy"
                     )
-                    
+
                     results.append({
                         "wallet_id": wallet.id,
                         "wallet_index": wallet.wallet_index,
                         **result
                     })
-                    
+
                 except Exception as e:
                     results.append({
                         "wallet_id": wallet.id,
@@ -284,9 +284,9 @@ class BulkOperations:
                         "success": False,
                         "error": str(e)
                     })
-            
+
             successful = sum(1 for r in results if r.get("success"))
-            
+
             return {
                 "total_wallets": len(results),
                 "successful": successful,
@@ -294,53 +294,53 @@ class BulkOperations:
                 "token_address": token_address,
                 "results": results
             }
-            
+
         finally:
             close_db(db)
     
-    def bulk_sell(self, group_id: int, token_address: str, percentage: int, slippage: float, password: str):
+    async def bulk_sell(self, group_id: int, token_address: str, percentage: int, slippage: float, password: str):
         """
         Sell token from all wallets in group simultaneously
-        
+
         Args:
             group_id: Wallet group ID
             token_address: Token to sell
             percentage: Percentage to sell (1-100)
             slippage: Slippage percentage
             password: Password to decrypt wallets
-            
+
         Returns:
             dict with results
         """
         from trading.executor import TradeExecutor
-        
+
         db = get_db()
         try:
             wallets = db.query(Wallet).filter(Wallet.group_id == group_id).all()
-            
+
             results = []
-            
+
             for wallet in wallets:
                 try:
                     # Decrypt wallet
                     private_key = decrypt_private_key(wallet.encrypted_private_key, password)
                     keypair = import_wallet(private_key, "private_key")
-                    
-                    # Execute sell
+
+                    # Execute sell (FIXED: Added await!)
                     executor = TradeExecutor(wallet.id, keypair)
-                    result = executor.execute_sell(
+                    result = await executor.execute_sell(
                         token_address=token_address,
                         percentage=percentage,
                         slippage=slippage,
                         strategy="bulk_sell"
                     )
-                    
+
                     results.append({
                         "wallet_id": wallet.id,
                         "wallet_index": wallet.wallet_index,
                         **result
                     })
-                    
+
                 except Exception as e:
                     results.append({
                         "wallet_id": wallet.id,
@@ -348,9 +348,9 @@ class BulkOperations:
                         "success": False,
                         "error": str(e)
                     })
-            
+
             successful = sum(1 for r in results if r.get("success"))
-            
+
             return {
                 "total_wallets": len(results),
                 "successful": successful,
