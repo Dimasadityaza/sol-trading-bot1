@@ -3,9 +3,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# RPC Configuration
-RPC_ENDPOINT = os.getenv("RPC_ENDPOINT", "https://api.devnet.solana.com")
-WS_ENDPOINT = os.getenv("WS_ENDPOINT", "wss://api.devnet.solana.com")
+# RPC Configuration - MAINNET by default
+RPC_ENDPOINT = os.getenv("RPC_ENDPOINT", "https://api.mainnet-beta.solana.com")
+WS_ENDPOINT = os.getenv("WS_ENDPOINT", "wss://api.mainnet-beta.solana.com")
 
 # Database
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./sniper.db")

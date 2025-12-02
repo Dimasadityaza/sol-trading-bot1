@@ -276,49 +276,15 @@ def delete_wallet(wallet_id: int, db: Session = Depends(get_db)):
     finally:
         close_db(db)
 
-# Network settings
-class NetworkConfig(BaseModel):
-    network: str  # 'devnet' or 'mainnet'
-
-# Global network state
-current_network = {
-    "network": "devnet",
-    "rpc_endpoint": "https://api.devnet.solana.com",
-    "ws_endpoint": "wss://api.devnet.solana.com"
-}
-
+# Network settings - Fixed to MAINNET
 @app.get("/settings/network")
 def get_network():
-    """Get current network configuration"""
-    return current_network
-
-@app.post("/settings/network")
-def set_network(config: NetworkConfig):
-    """Set network (devnet or mainnet)"""
-    global current_network
-
-    if config.network not in ["devnet", "mainnet"]:
-        raise HTTPException(status_code=400, detail="Network must be 'devnet' or 'mainnet'")
-
-    if config.network == "mainnet":
-        current_network = {
-            "network": "mainnet",
-            "rpc_endpoint": "https://api.mainnet-beta.solana.com",
-            "ws_endpoint": "wss://api.mainnet-beta.solana.com"
-        }
-    else:
-        current_network = {
-            "network": "devnet",
-            "rpc_endpoint": "https://api.devnet.solana.com",
-            "ws_endpoint": "wss://api.devnet.solana.com"
-        }
-
-    # Update config module
-    import config as cfg
-    cfg.RPC_ENDPOINT = current_network["rpc_endpoint"]
-    cfg.WS_ENDPOINT = current_network["ws_endpoint"]
-
-    return current_network
+    """Get current network configuration (always mainnet)"""
+    return {
+        "network": "mainnet",
+        "rpc_endpoint": "https://api.mainnet-beta.solana.com",
+        "ws_endpoint": "wss://api.mainnet-beta.solana.com"
+    }
 
 if __name__ == "__main__":
     import uvicorn
