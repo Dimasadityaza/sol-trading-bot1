@@ -24,7 +24,7 @@ class SniperBot:
         self.analyzer = TokenAnalyzer()
         self.executor = TradeExecutor(wallet_id, keypair)
         self.db = get_db()
-        
+
         # Default config
         self.buy_amount = self.config.get("buy_amount", 0.1)
         self.slippage = self.config.get("slippage", 5.0)
@@ -33,74 +33,95 @@ class SniperBot:
         self.require_mint_renounced = self.config.get("require_mint_renounced", True)
         self.require_freeze_renounced = self.config.get("require_freeze_renounced", True)
         self.max_buy_tax = self.config.get("max_buy_tax", 10.0)
-        
+
+        # FAST MODE - Skip all safety checks for maximum speed
+        self.fast_mode = self.config.get("fast_mode", False)
+
         # Tracking
         self.pools_detected = 0
         self.tokens_bought = 0
         self.tokens_skipped = 0
     
     async def on_new_pool(self, pool_data: Dict[str, Any]):
-        """Handle new pool detection"""
+        """Handle new pool detection - OPTIMIZED FOR SPEED"""
         self.pools_detected += 1
-        
+
         token_address = pool_data.get("token_address")
         liquidity = pool_data.get("liquidity", 0)
-        
-        print(f"\n🎯 New pool detected #{self.pools_detected}")
+
+        print(f"\n🎯 New pool #{self.pools_detected}: {token_address}")
+
+        # FAST MODE: Skip ALL validations, buy immediately
+        if self.fast_mode:
+            print(f"   ⚡ FAST MODE - Executing instant buy {self.buy_amount} SOL")
+            try:
+                result = await self.executor.execute_buy(
+                    token_address=token_address,
+                    sol_amount=self.buy_amount,
+                    slippage=self.slippage,
+                    strategy="snipe_fast"
+                )
+
+                if result["success"]:
+                    self.tokens_bought += 1
+                    print(f"   ✅ Buy executed! Sig: {result['signature'][:16]}...")
+                else:
+                    print(f"   ✗ Failed: {result.get('error')}")
+                    self.tokens_skipped += 1
+            except Exception as e:
+                print(f"   ✗ Error: {e}")
+                self.tokens_skipped += 1
+            return
+
+        # NORMAL MODE: With safety checks
         print(f"   Token: {pool_data.get('token_symbol', 'Unknown')}")
-        print(f"   Address: {token_address}")
         print(f"   Liquidity: {liquidity} SOL")
-        
-        # Check liquidity requirement
+
+        # Quick liquidity check
         if liquidity < self.min_liquidity:
-            print(f"   ✗ Skipped: Liquidity too low ({liquidity} < {self.min_liquidity})")
+            print(f"   ✗ Low liquidity ({liquidity} < {self.min_liquidity})")
             self.tokens_skipped += 1
             return
-        
+
         # Analyze token safety
-        print(f"   🔍 Analyzing token safety...")
+        print(f"   🔍 Analyzing safety...")
         try:
             analysis = self.analyzer.analyze_token(token_address)
             safety_score = analysis["safety_score"]
-            
-            print(f"   Safety Score: {safety_score}/100")
-            
-            # Check safety requirements
+
+            # Quick safety checks
             if self.require_mint_renounced and not analysis["mint_renounced"]:
-                print(f"   ✗ Skipped: Mint authority not renounced")
+                print(f"   ✗ Mint not renounced")
                 self.tokens_skipped += 1
                 return
-            
+
             if self.require_freeze_renounced and not analysis["freeze_renounced"]:
-                print(f"   ✗ Skipped: Freeze authority not renounced")
+                print(f"   ✗ Freeze not renounced")
                 self.tokens_skipped += 1
                 return
-            
+
             if safety_score < self.min_safety_score:
-                print(f"   ✗ Skipped: Safety score too low ({safety_score} < {self.min_safety_score})")
+                print(f"   ✗ Low safety ({safety_score}/{self.min_safety_score})")
                 self.tokens_skipped += 1
                 return
-            
-            # All checks passed - execute buy
-            print(f"   ✓ All safety checks passed!")
-            print(f"   💰 Executing buy: {self.buy_amount} SOL")
-            
+
+            # Execute buy
+            print(f"   ✓ Safety OK! Buying {self.buy_amount} SOL...")
+
             result = await self.executor.execute_buy(
                 token_address=token_address,
                 sol_amount=self.buy_amount,
                 slippage=self.slippage,
                 strategy="snipe"
             )
-            
+
             if result["success"]:
                 self.tokens_bought += 1
-                print(f"   ✅ Buy successful!")
-                print(f"   Signature: {result['signature']}")
-                print(f"   Explorer: {result['explorer_url']}")
+                print(f"   ✅ Success! Sig: {result['signature'][:16]}...")
             else:
-                print(f"   ✗ Buy failed: {result.get('error')}")
+                print(f"   ✗ Failed: {result.get('error')}")
                 self.tokens_skipped += 1
-        
+
         except Exception as e:
             print(f"   ✗ Error: {e}")
             self.tokens_skipped += 1
@@ -112,18 +133,26 @@ class SniperBot:
         print("="*60)
         print(f"Wallet ID: {self.wallet_id}")
         print(f"Buy Amount: {self.buy_amount} SOL")
-        print(f"Min Liquidity: {self.min_liquidity} SOL")
-        print(f"Min Safety Score: {self.min_safety_score}/100")
-        print(f"Require Mint Renounced: {self.require_mint_renounced}")
-        print(f"Require Freeze Renounced: {self.require_freeze_renounced}")
+        print(f"Slippage: {self.slippage}%")
+
+        if self.fast_mode:
+            print(f"⚡ FAST MODE: ENABLED (Skip all safety checks)")
+            print(f"⚠️  WARNING: Will buy ANY new pool immediately!")
+        else:
+            print(f"🛡️  SAFE MODE: Enabled")
+            print(f"Min Liquidity: {self.min_liquidity} SOL")
+            print(f"Min Safety Score: {self.min_safety_score}/100")
+            print(f"Require Mint Renounced: {self.require_mint_renounced}")
+            print(f"Require Freeze Renounced: {self.require_freeze_renounced}")
+
         print("="*60)
-        
+
         self.is_running = True
-        
+
         # Start monitoring
         platforms = platforms or ["raydium", "pumpfun", "orca"]
         self.monitor = MultiPlatformMonitor(platforms)
-        
+
         try:
             await self.monitor.start(self.on_new_pool)
         except KeyboardInterrupt:
