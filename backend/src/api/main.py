@@ -12,7 +12,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.database import init_db, get_db, close_db, Wallet
 from core.wallet import generate_wallet, import_wallet, get_balance, keypair_to_base58
 from utils.encryption import encrypt_private_key, decrypt_private_key
-from api.routes import trading, sniper, analytics, groups
+from api.routes import trading, sniper, analytics, groups, settings
 
 app = FastAPI(title="Solana Sniper Bot API", version="1.0.0")
 
@@ -21,6 +21,7 @@ app.include_router(trading.router)
 app.include_router(sniper.router)
 app.include_router(analytics.router)
 app.include_router(groups.router)
+app.include_router(settings.router)
 
 # CORS
 app.add_middleware(

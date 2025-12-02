@@ -5,21 +5,42 @@ from typing import Callable, Optional, Dict, Any
 from datetime import datetime
 import sys
 import os
+import base64
+from solana.rpc.api import Client
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import WS_ENDPOINT
+from config import WS_ENDPOINT, RPC_ENDPOINT
+
+# DEX Program IDs
+RAYDIUM_V4 = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
+RAYDIUM_AMM = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"
+ORCA_WHIRLPOOL = "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"
+PUMPFUN = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
 
 class PoolMonitor:
     """Monitor new liquidity pools on Solana DEXs"""
-    
+
     def __init__(self, platform: str = "raydium"):
         self.platform = platform
         self.ws_url = WS_ENDPOINT
+        self.rpc_client = Client(RPC_ENDPOINT)
         self.is_running = False
         self.on_new_pool: Optional[Callable] = None
         self.websocket = None
-    
+        self.program_id = self._get_program_id()
+
+    def _get_program_id(self) -> str:
+        """Get program ID for platform"""
+        if self.platform == "raydium":
+            return RAYDIUM_V4
+        elif self.platform == "orca":
+            return ORCA_WHIRLPOOL
+        elif self.platform == "pumpfun":
+            return PUMPFUN
+        else:
+            return RAYDIUM_V4  # Default
+
     async def connect(self):
         """Connect to WebSocket"""
         try:
@@ -32,29 +53,29 @@ class PoolMonitor:
             return False
     
     async def subscribe_to_pools(self):
-        """Subscribe to new pool events"""
+        """Subscribe to new pool events via logs subscription"""
         if not self.websocket:
             print("Not connected to WebSocket")
             return
-        
-        # Subscribe to account updates for Raydium/Orca/etc
-        # This is a simplified version - in production you'd subscribe to specific program IDs
+
+        # Subscribe to program logs for DEX transactions
         subscription = {
             "jsonrpc": "2.0",
             "id": 1,
-            "method": "programSubscribe",
+            "method": "logsSubscribe",
             "params": [
-                "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",  # Raydium V4 program
                 {
-                    "encoding": "jsonParsed",
-                    "commitment": "finalized"
+                    "mentions": [self.program_id]
+                },
+                {
+                    "commitment": "confirmed"  # Use confirmed for faster detection
                 }
             ]
         }
-        
+
         try:
             await self.websocket.send(json.dumps(subscription))
-            print(f"✓ Subscribed to {self.platform} pools")
+            print(f"✓ Subscribed to {self.platform} program logs (Program: {self.program_id})")
         except Exception as e:
             print(f"✗ Subscription failed: {e}")
     
@@ -96,24 +117,63 @@ class PoolMonitor:
             self.is_running = False
     
     def _parse_pool_data(self, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Parse pool data from WebSocket message"""
-        # This is a mock parser - in production you'd parse actual Raydium/Orca data
-        # For demo purposes, return mock data occasionally
-        
-        import random
-        if random.random() < 0.1:  # 10% chance to simulate new pool
+        """
+        Parse pool data from WebSocket log message
+
+        Real implementation would:
+        1. Detect 'initialize' or pool creation logs
+        2. Extract transaction signature
+        3. Fetch full transaction via RPC
+        4. Parse account data to get token addresses, liquidity, etc.
+
+        For now: Returns data when we detect pool-related logs
+        """
+        try:
+            # Check if this is a notification with logs
+            if "params" not in data or "result" not in data["params"]:
+                return None
+
+            result = data["params"]["result"]
+            logs = result.get("value", {}).get("logs", [])
+            signature = result.get("value", {}).get("signature", "")
+
+            # Check for pool initialization keywords in logs
+            pool_keywords = ["initialize", "InitializePool", "CreatePool", "init_pool"]
+            is_pool_creation = any(
+                any(keyword.lower() in log.lower() for keyword in pool_keywords)
+                for log in logs
+            )
+
+            if not is_pool_creation or not signature:
+                return None
+
+            # In production, you would:
+            # 1. Fetch transaction details: self.rpc_client.get_transaction(signature)
+            # 2. Parse account keys to find token mints
+            # 3. Extract pool address
+            # 4. Calculate liquidity from account balances
+            # 5. Fetch token metadata
+
+            # For demo: Return detected pool with signature
+            print(f"   🎯 Pool creation detected! Signature: {signature[:16]}...")
+
+            # Extract basic info from logs (simplified)
             return {
                 "platform": self.platform,
-                "token_address": f"Mock{random.randint(1000, 9999)}Token",
-                "pool_address": f"Pool{random.randint(1000, 9999)}",
-                "liquidity": random.uniform(1, 100),
-                "token_symbol": f"TKN{random.randint(1, 999)}",
-                "token_name": f"Test Token {random.randint(1, 999)}",
-                "creator": f"Creator{random.randint(1, 100)}",
-                "timestamp": datetime.utcnow().isoformat()
+                "signature": signature,
+                "pool_address": f"{self.platform}_pool_{signature[:8]}",
+                "token_address": f"Token_{signature[8:16]}",
+                "liquidity": 0,  # Would calculate from transaction
+                "token_symbol": "NEW",
+                "token_name": "New Token",
+                "creator": "Unknown",
+                "timestamp": datetime.utcnow().isoformat(),
+                "logs": logs[:5]  # First 5 logs for debugging
             }
-        
-        return None
+
+        except Exception as e:
+            print(f"   Error parsing pool data: {e}")
+            return None
     
     async def disconnect(self):
         """Disconnect from WebSocket"""
