@@ -44,6 +44,13 @@ class GroupSniperConfigRequest(BaseModel):
     password: str
     platforms: list = ["raydium", "pumpfun"]
 
+class ManualBulkSnipeRequest(BaseModel):
+    group_id: int
+    token_address: str
+    buy_amount: float = 0.1
+    slippage: float = 5.0
+    password: str
+
 # Routes
 @router.post("/config")
 def save_sniper_config(request: SniperConfigRequest, db: Session = Depends(get_db)):
@@ -286,6 +293,100 @@ async def setup_group_sniper(
                 "require_mint_renounced": request.require_mint_renounced,
                 "require_freeze_renounced": request.require_freeze_renounced
             }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        close_db(db)
+
+@router.post("/group/manual-snipe")
+async def manual_bulk_snipe(
+    request: ManualBulkSnipeRequest,
+    db: Session = Depends(get_db)
+):
+    """Snipe a specific token with all wallets in a group"""
+    try:
+        # Get group
+        group = db.query(WalletGroup).filter(WalletGroup.id == request.group_id).first()
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+
+        # Get all wallets in group
+        wallets = db.query(Wallet).filter(Wallet.group_id == request.group_id).all()
+        if not wallets:
+            raise HTTPException(status_code=404, detail="No wallets found in group")
+
+        # Verify password with first wallet
+        try:
+            decrypt_private_key(wallets[0].encrypted_private_key, request.password)
+        except:
+            raise HTTPException(status_code=401, detail="Invalid password")
+
+        # Import trade executor
+        from trading.executor import TradeExecutor
+
+        # Execute buy for each wallet
+        results = []
+        success_count = 0
+        fail_count = 0
+
+        for wallet in wallets:
+            try:
+                # Decrypt private key
+                private_key = decrypt_private_key(wallet.encrypted_private_key, request.password)
+
+                # Import keypair
+                keypair = import_wallet(private_key, "private_key")
+
+                # Execute trade
+                executor = TradeExecutor(wallet.id, keypair)
+                result = await executor.execute_buy(
+                    token_address=request.token_address,
+                    sol_amount=request.buy_amount,
+                    slippage=request.slippage,
+                    strategy="bulk_snipe"
+                )
+
+                if result["success"]:
+                    success_count += 1
+                    results.append({
+                        "wallet_id": wallet.id,
+                        "wallet_label": wallet.label,
+                        "success": True,
+                        "signature": result.get("signature"),
+                        "message": "Snipe successful"
+                    })
+                else:
+                    fail_count += 1
+                    results.append({
+                        "wallet_id": wallet.id,
+                        "wallet_label": wallet.label,
+                        "success": False,
+                        "error": result.get("error", "Unknown error")
+                    })
+
+            except Exception as e:
+                fail_count += 1
+                results.append({
+                    "wallet_id": wallet.id,
+                    "wallet_label": wallet.label,
+                    "success": False,
+                    "error": str(e)
+                })
+
+        return {
+            "success": True,
+            "message": f"Bulk snipe completed: {success_count} succeeded, {fail_count} failed",
+            "group_id": request.group_id,
+            "group_name": group.name,
+            "token_address": request.token_address,
+            "total_wallets": len(wallets),
+            "success_count": success_count,
+            "fail_count": fail_count,
+            "results": results
         }
 
     except HTTPException:

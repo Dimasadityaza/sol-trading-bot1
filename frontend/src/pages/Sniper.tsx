@@ -4,8 +4,9 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useWalletStore } from '@/store/walletStore'
 import { sniperApi } from '@/services/api'
-import { Target, Play, Square, Activity, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react'
+import { Target, Play, Square, Activity, TrendingUp, AlertCircle, CheckCircle, Zap } from 'lucide-react'
 import type { SniperConfig, SniperStatus } from '@/types'
+import axios from 'axios'
 
 export function Sniper() {
   const { selectedWallet } = useWalletStore()
@@ -40,12 +41,32 @@ export function Sniper() {
   const [isStopping, setIsStopping] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
 
+  // Manual snipe state
+  const [manualTokenAddress, setManualTokenAddress] = useState('')
+  const [manualPassword, setManualPassword] = useState('')
+  const [isManualSniping, setIsManualSniping] = useState(false)
+
+  // Bulk snipe state
+  const [groups, setGroups] = useState<any[]>([])
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null)
+  const [bulkTokenAddress, setBulkTokenAddress] = useState('')
+  const [bulkBuyAmount, setBulkBuyAmount] = useState(0.1)
+  const [bulkSlippage, setBulkSlippage] = useState(5.0)
+  const [bulkPassword, setBulkPassword] = useState('')
+  const [isBulkSniping, setIsBulkSniping] = useState(false)
+  const [bulkResults, setBulkResults] = useState<any>(null)
+
   // Load config when wallet selected
   useEffect(() => {
     if (selectedWallet) {
       loadConfig()
     }
   }, [selectedWallet])
+
+  // Load groups on mount
+  useEffect(() => {
+    loadGroups()
+  }, [])
 
   // Poll status every 3 seconds when running
   useEffect(() => {
@@ -61,6 +82,15 @@ export function Sniper() {
       if (interval) clearInterval(interval)
     }
   }, [status.is_running])
+
+  const loadGroups = async () => {
+    try {
+      const response = await axios.get('http://localhost:8000/group/list')
+      setGroups(response.data || [])
+    } catch (error) {
+      console.error('Failed to load groups:', error)
+    }
+  }
 
   const loadConfig = async () => {
     if (!selectedWallet) return
@@ -172,6 +202,80 @@ export function Sniper() {
     }
   }
 
+  const executeManualSnipe = async () => {
+    if (!selectedWallet) {
+      showMessage('error', 'Please select a wallet first')
+      return
+    }
+
+    if (!manualTokenAddress) {
+      showMessage('error', 'Please enter token address to snipe')
+      return
+    }
+
+    if (!manualPassword) {
+      showMessage('error', 'Please enter your wallet password')
+      return
+    }
+
+    setIsManualSniping(true)
+    try {
+      const response = await axios.post('http://localhost:8000/trade/buy', {
+        wallet_id: selectedWallet.id,
+        token_address: manualTokenAddress,
+        sol_amount: config.buy_amount,
+        slippage: config.slippage,
+        password: manualPassword
+      })
+
+      showMessage('success', `Manual snipe successful! TX: ${response.data.signature?.slice(0, 10)}...`)
+      setManualTokenAddress('')
+      setManualPassword('')
+    } catch (error: any) {
+      showMessage('error', error.response?.data?.detail || 'Manual snipe failed')
+    } finally {
+      setIsManualSniping(false)
+    }
+  }
+
+  const executeBulkSnipe = async () => {
+    if (!selectedGroupId) {
+      showMessage('error', 'Please select a group first')
+      return
+    }
+
+    if (!bulkTokenAddress) {
+      showMessage('error', 'Please enter token address to snipe')
+      return
+    }
+
+    if (!bulkPassword) {
+      showMessage('error', 'Please enter password')
+      return
+    }
+
+    setIsBulkSniping(true)
+    setBulkResults(null)
+
+    try {
+      const response = await axios.post('http://localhost:8000/sniper/group/manual-snipe', {
+        group_id: selectedGroupId,
+        token_address: bulkTokenAddress,
+        buy_amount: bulkBuyAmount,
+        slippage: bulkSlippage,
+        password: bulkPassword
+      })
+
+      setBulkResults(response.data)
+      showMessage('success', response.data.message)
+      setBulkPassword('')
+    } catch (error: any) {
+      showMessage('error', error.response?.data?.detail || 'Bulk snipe failed')
+    } finally {
+      setIsBulkSniping(false)
+    }
+  }
+
   const showMessage = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
     setTimeout(() => setMessage(null), 5000)
@@ -251,6 +355,160 @@ export function Sniper() {
               <div className="text-2xl font-bold text-blue-500">{status.success_rate?.toFixed(1) || 0}%</div>
               <div className="text-xs text-muted-foreground">Success Rate</div>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Manual Snipe Card */}
+      <Card className="border-yellow-500/50">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Zap className="h-5 w-5 text-yellow-500" />
+            Manual Snipe (Single Wallet)
+          </CardTitle>
+          <CardDescription>Snipe a specific token address with selected wallet</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <label className="text-sm font-medium">Token Address to Snipe</label>
+            <Input
+              placeholder="Enter token address (e.g., EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v)"
+              value={manualTokenAddress}
+              onChange={(e) => setManualTokenAddress(e.target.value)}
+              className="mt-1 font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Will buy {config.buy_amount} SOL worth with {config.slippage}% slippage
+            </p>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">Wallet Password</label>
+            <Input
+              type="password"
+              placeholder="Enter your wallet password"
+              value={manualPassword}
+              onChange={(e) => setManualPassword(e.target.value)}
+              className="mt-1"
+            />
+          </div>
+
+          <Button
+            onClick={executeManualSnipe}
+            disabled={isManualSniping || !selectedWallet || !manualTokenAddress || !manualPassword}
+            className="w-full bg-yellow-500 hover:bg-yellow-600"
+          >
+            <Zap className="h-4 w-4 mr-2" />
+            {isManualSniping ? 'Sniping...' : 'Snipe Now!'}
+          </Button>
+
+          <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/20 p-3 text-sm">
+            <p className="text-yellow-500">
+              ⚡ Quick snipe: Uses current sniper config (buy amount & slippage). Make sure to configure them first!
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Bulk Snipe Card */}
+      <Card className="border-purple-500/50">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Target className="h-5 w-5 text-purple-500" />
+            Bulk Snipe (Multiple Wallets)
+          </CardTitle>
+          <CardDescription>Snipe a token with ALL wallets in a group simultaneously</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <label className="text-sm font-medium">Select Group</label>
+            <select
+              value={selectedGroupId || ''}
+              onChange={(e) => setSelectedGroupId(parseInt(e.target.value))}
+              className="mt-1 w-full rounded-md border bg-background px-3 py-2"
+            >
+              <option value="">Select a wallet group...</option>
+              {groups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name} ({group.wallet_count} wallets)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">Token Address to Snipe</label>
+            <Input
+              placeholder="Enter token address"
+              value={bulkTokenAddress}
+              onChange={(e) => setBulkTokenAddress(e.target.value)}
+              className="mt-1 font-mono text-sm"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-sm font-medium">Buy Amount (SOL)</label>
+              <Input
+                type="number"
+                step="0.01"
+                value={bulkBuyAmount}
+                onChange={(e) => setBulkBuyAmount(parseFloat(e.target.value))}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Slippage (%)</label>
+              <Input
+                type="number"
+                step="0.1"
+                value={bulkSlippage}
+                onChange={(e) => setBulkSlippage(parseFloat(e.target.value))}
+                className="mt-1"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">Password</label>
+            <Input
+              type="password"
+              placeholder="Enter wallet password"
+              value={bulkPassword}
+              onChange={(e) => setBulkPassword(e.target.value)}
+              className="mt-1"
+            />
+          </div>
+
+          <Button
+            onClick={executeBulkSnipe}
+            disabled={isBulkSniping || !selectedGroupId || !bulkTokenAddress || !bulkPassword}
+            className="w-full bg-purple-500 hover:bg-purple-600"
+          >
+            <Target className="h-4 w-4 mr-2" />
+            {isBulkSniping ? 'Bulk Sniping...' : 'Bulk Snipe Now!'}
+          </Button>
+
+          {bulkResults && (
+            <div className="rounded-lg bg-purple-500/10 border border-purple-500/20 p-3 space-y-2">
+              <p className="font-semibold text-purple-500">
+                ✅ {bulkResults.success_count} Success | ❌ {bulkResults.fail_count} Failed
+              </p>
+              <div className="max-h-40 overflow-y-auto space-y-1 text-sm">
+                {bulkResults.results?.map((result: any, idx: number) => (
+                  <div key={idx} className={result.success ? 'text-green-500' : 'text-red-500'}>
+                    {result.success ? '✓' : '✗'} {result.wallet_label}
+                    {result.error && `: ${result.error}`}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-lg bg-purple-500/10 border border-purple-500/20 p-3 text-sm">
+            <p className="text-purple-500">
+              🚀 Bulk snipe: All wallets in the group will snipe the token at the same time!
+            </p>
           </div>
         </CardContent>
       </Card>
