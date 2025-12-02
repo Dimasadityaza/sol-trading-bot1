@@ -193,15 +193,15 @@ def collect_sol(request: CollectSOLRequest, db: Session = Depends(get_db)):
         close_db(db)
 
 @router.post("/bulk-buy")
-def bulk_buy(request: BulkBuyRequest, db: Session = Depends(get_db)):
+async def bulk_buy(request: BulkBuyRequest, db: Session = Depends(get_db)):
     """
     Buy token from all wallets in group simultaneously
-    
+
     All wallets will buy the same token with same amount and slippage
     """
     try:
         bulk_ops = get_bulk_operations()
-        result = bulk_ops.bulk_buy(
+        result = await bulk_ops.bulk_buy(
             group_id=request.group_id,
             token_address=request.token_address,
             sol_amount=request.sol_amount,
@@ -215,7 +215,7 @@ def bulk_buy(request: BulkBuyRequest, db: Session = Depends(get_db)):
         close_db(db)
 
 @router.post("/bulk-sell")
-def bulk_sell(request: BulkSellRequest, db: Session = Depends(get_db)):
+async def bulk_sell(request: BulkSellRequest, db: Session = Depends(get_db)):
     """
     Sell token from all wallets in group simultaneously
 
@@ -223,7 +223,7 @@ def bulk_sell(request: BulkSellRequest, db: Session = Depends(get_db)):
     """
     try:
         bulk_ops = get_bulk_operations()
-        result = bulk_ops.bulk_sell(
+        result = await bulk_ops.bulk_sell(
             group_id=request.group_id,
             token_address=request.token_address,
             percentage=request.percentage,
