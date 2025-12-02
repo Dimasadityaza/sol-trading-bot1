@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { WalletCard } from '@/components/wallet/WalletCard'
 import { CreateWalletModal } from '@/components/wallet/CreateWalletModal'
+import { ImportWalletModal } from '@/components/wallet/ImportWalletModal'
 import { useWalletStore } from '@/store/walletStore'
 import { walletApi } from '@/services/api'
-import { Plus, RefreshCw } from 'lucide-react'
+import { Plus, RefreshCw, Download } from 'lucide-react'
 
 export function Wallets() {
   const { wallets, setWallets, removeWallet, setLoading, isLoading } = useWalletStore()
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false)
 
   useEffect(() => {
     loadWallets()
@@ -55,6 +57,13 @@ export function Wallets() {
           >
             <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
           </Button>
+          <Button
+            variant="outline"
+            onClick={() => setIsImportModalOpen(true)}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Import Wallet
+          </Button>
           <Button onClick={() => setIsCreateModalOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
             Create Wallet
@@ -99,6 +108,11 @@ export function Wallets() {
       <CreateWalletModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
+      />
+
+      <ImportWalletModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
       />
     </div>
   )
